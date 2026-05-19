@@ -75,17 +75,17 @@ impl Daemon {
             Err(e) => { error_msg("timerfd", &e.to_string()); process::exit(1); }
         };
         tfd.set(
-            TimerSetTimeFlags::empty(),
             Expiration::IntervalDelayed(
                 nix::sys::time::TimeSpec::from(interval),
                 nix::sys::time::TimeSpec::from(interval),
             ),
+            TimerSetTimeFlags::empty(),
         ).ok();
 
         let mut pfds = [
-            PollFd::new(&self.inotify, PollFlags::POLLIN),
-            PollFd::new(&sfd, PollFlags::POLLIN),
-            PollFd::new(&tfd, PollFlags::POLLIN),
+            PollFd::new(self.inotify.as_fd(), PollFlags::POLLIN),
+            PollFd::new(sfd.as_fd(), PollFlags::POLLIN),
+            PollFd::new(tfd.as_fd(), PollFlags::POLLIN),
         ];
 
         self.apply_all();
