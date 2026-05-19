@@ -9,5 +9,7 @@
     "target-pointer-width": 32,
     "vendor": "unknown",
     "crt-objects-fallback": "false",
-    "link-self-contained": true
+    "link-self-contained": {
+        "unwind": true
+    }
 }
