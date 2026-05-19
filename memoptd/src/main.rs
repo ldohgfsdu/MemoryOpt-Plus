@@ -8,6 +8,7 @@ mod zram;
 mod heartbeat;
 
 use std::io::Write;
+use std::os::unix::io::AsFd;
 use std::path::PathBuf;
 use std::process;
 use std::time::Duration;
