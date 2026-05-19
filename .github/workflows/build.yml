@@ -15,9 +15,10 @@ jobs:
         with:
           targets: aarch64-unknown-linux-musl,armv7-unknown-linux-musleabi
 
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cross
+      - name: Install cross (binary)
+        run: |
+          curl -sSL https://github.com/cross-rs/cross/releases/latest/download/cross-x86_64-unknown-linux-musl.tar.gz | tar xzf - -C /tmp
+          sudo install -m755 /tmp/cross /usr/local/bin/cross
 
       - name: Build memoptd (aarch64)
         run: |
