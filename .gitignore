@@ -14,3 +14,4 @@ memoptd/target/
 .idea/
 .DS_Store
 Thumbs.db
+memoptd/.cargo/

@@ -1,5 +1,0 @@
-[target.aarch64-linux-musl]
-linker = "aarch64-linux-musl-gcc"
-
-[target.armv7-linux-musleabihf]
-linker = "arm-linux-musleabihf-gcc"
