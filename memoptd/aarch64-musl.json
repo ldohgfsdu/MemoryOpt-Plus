@@ -5,6 +5,7 @@
     "llvm-target": "aarch64-unknown-linux-musl",
     "max-atomic-width": 128,
     "os": "linux",
+    "target-family": ["unix"],
     "target-pointer-width": 64,
     "vendor": "unknown",
     "crt-objects-fallback": "false"

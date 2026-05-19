@@ -5,6 +5,7 @@
     "llvm-target": "armv7-unknown-linux-musleabi",
     "max-atomic-width": 64,
     "os": "linux",
+    "target-family": ["unix"],
     "target-pointer-width": 32,
     "vendor": "unknown",
     "crt-objects-fallback": "false"
