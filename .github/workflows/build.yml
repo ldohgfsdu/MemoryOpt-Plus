@@ -13,8 +13,8 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@v1
         with:
-          toolchain: nightly
-          components: rust-src
+          toolchain: stable
+          targets: aarch64-unknown-linux-musl,armv7-unknown-linux-musleabi
 
       - name: Install zig + linker wrappers
         run: |
@@ -26,20 +26,20 @@ jobs:
 
       - name: Build memoptd (aarch64)
         env:
-          CARGO_TARGET_AARCH64_MUSL_LINKER: zig-cc-aarch64
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: zig-cc-aarch64
         run: |
           cd memoptd
-          cargo -Zjson-target-spec -Zbuild-std=std,panic_abort build --release --target aarch64-musl.json
+          RUSTFLAGS="-C link-arg=-Wl,--allow-multiple-definition" cargo build --release --target aarch64-unknown-linux-musl
           mkdir -p out
-          cp target/aarch64-musl/release/memoptd out/
+          cp target/aarch64-unknown-linux-musl/release/memoptd out/
 
       - name: Build memoptd (armv7)
         env:
-          CARGO_TARGET_ARMV7_MUSLEABI_LINKER: zig-cc-armv7
+          CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABI_LINKER: zig-cc-armv7
         run: |
           cd memoptd
-          cargo -Zjson-target-spec -Zbuild-std=std,panic_abort build --release --target armv7-musleabi.json
-          cp target/armv7-musleabi/release/memoptd out/memoptd.arm
+          RUSTFLAGS="-C link-arg=-Wl,--allow-multiple-definition" cargo build --release --target armv7-unknown-linux-musleabi
+          cp target/armv7-unknown-linux-musleabi/release/memoptd out/memoptd.arm
 
       - name: Package module
         run: bash pack.sh
