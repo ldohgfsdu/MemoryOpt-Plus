@@ -8,7 +8,7 @@ mod zram;
 mod heartbeat;
 
 use std::io::Write;
-use std::os::unix::io::{AsRawFd, BorrowedFd};
+use std::os::unix::io::{AsFd, AsRawFd, BorrowedFd};
 use std::path::PathBuf;
 use std::process;
 use std::time::Duration;
@@ -86,7 +86,7 @@ impl Daemon {
         // Extract raw fds to avoid borrow conflicts with &mut self
         let ino_fd = self.inotify.as_raw_fd();
         let sfd_fd = sfd.as_raw_fd();
-        let tfd_fd = tfd.as_raw_fd();
+        let tfd_fd = tfd.as_fd().as_raw_fd();
 
         self.apply_all();
         info_msg("memoptd started");
