@@ -16,26 +16,29 @@ jobs:
           toolchain: stable
           targets: aarch64-unknown-linux-musl,armv7-unknown-linux-musleabi
 
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-zigbuild
-
-      - name: Install zig
+      - name: Install zig + linker wrappers
         run: |
           curl -sSL https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz | sudo tar xJ -C /usr/local
           sudo ln -s /usr/local/zig-linux-x86_64-0.13.0/zig /usr/local/bin/zig
+          printf '#!/bin/sh\nexec zig cc -target aarch64-linux-musl "$@"\n' | sudo tee /usr/local/bin/zig-cc-aarch64 >/dev/null
+          printf '#!/bin/sh\nexec zig cc -target arm-linux-musleabi "$@"\n' | sudo tee /usr/local/bin/zig-cc-armv7 >/dev/null
+          sudo chmod +x /usr/local/bin/zig-cc-aarch64 /usr/local/bin/zig-cc-armv7
 
       - name: Build memoptd (aarch64)
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: zig-cc-aarch64
         run: |
           cd memoptd
-          cargo zigbuild --release --target aarch64-unknown-linux-musl
+          cargo build --release --target aarch64-unknown-linux-musl
           mkdir -p out
           cp target/aarch64-unknown-linux-musl/release/memoptd out/
 
       - name: Build memoptd (armv7)
+        env:
+          CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABI_LINKER: zig-cc-armv7
         run: |
           cd memoptd
-          cargo zigbuild --release --target armv7-unknown-linux-musleabi
+          cargo build --release --target armv7-unknown-linux-musleabi
           cp target/armv7-unknown-linux-musleabi/release/memoptd out/memoptd.arm
 
       - name: Package module
