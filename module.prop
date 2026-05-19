@@ -1,7 +1,7 @@
 id=memoryopt_plus
 name=MemoryOpt Plus
-version=v4.1.0
-versionCode=410
+version=V26.05.20
+versionCode=260520
 author=M1racle & MemoryOpt Team
 description=高性能内存优化 | ZRAM + VM 锁定 + PSI 自适应 + inotify 热重载
 minMagisk=25200

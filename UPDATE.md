@@ -2,7 +2,7 @@
 
 All notable changes to MemoryOpt Plus will be documented in this file.
 
-## [v4.1.0] - 2026-05-19
+## [V26.05.20] - 2026-05-20
 
 ### Added
 - 双引擎架构：Rust 守护进程 (memoptd) + Shell 零依赖回退
