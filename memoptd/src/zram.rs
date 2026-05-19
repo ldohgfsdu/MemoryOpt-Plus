@@ -21,7 +21,7 @@ pub fn compression_ratio() -> Option<f64> {
         let stat_path = entry.path().join("mm_stat");
         if let Ok(content) = std::fs::read_to_string(&stat_path) {
             let fields: Vec<u64> = content.split_whitespace().filter_map(|s| s.parse().ok()).collect();
-            if fields.len() >= 2 && fields[0] > 0 {
+            if fields.len() >= 2 && fields[0] > 0 && fields[1] > 0 {
                 return Some(fields[0] as f64 / fields[1] as f64);
             }
         }
