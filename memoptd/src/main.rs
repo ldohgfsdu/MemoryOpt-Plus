@@ -93,7 +93,7 @@ impl Daemon {
         info_msg("memoptd started");
 
         loop {
-            let _ = poll(&mut pfds, PollTimeout::from(60000));
+            let _ = poll(&mut pfds, PollTimeout::from(60000u16));
 
             if pfds[0].revents().map_or(false, |r| r.contains(PollFlags::POLLIN)) {
                 self.inotify.drain();
