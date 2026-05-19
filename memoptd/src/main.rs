@@ -8,7 +8,7 @@ mod zram;
 mod heartbeat;
 
 use std::io::Write;
-use std::os::unix::io::AsFd;
+use std::os::unix::io::{AsRawFd, BorrowedFd};
 use std::path::PathBuf;
 use std::process;
 use std::time::Duration;
@@ -60,7 +60,7 @@ impl Daemon {
     }
 
     fn run(&mut self) {
-        let sigset = SigSet::empty();
+        let mut sigset = SigSet::empty();
         sigset.add(Signal::SIGHUP);
         sigset.add(Signal::SIGUSR1);
         sigset.thread_block().ok();
@@ -83,16 +83,21 @@ impl Daemon {
             TimerSetTimeFlags::empty(),
         ).ok();
 
-        let mut pfds = [
-            PollFd::new(self.inotify.as_fd(), PollFlags::POLLIN),
-            PollFd::new(sfd.as_fd(), PollFlags::POLLIN),
-            PollFd::new(tfd.as_fd(), PollFlags::POLLIN),
-        ];
+        // Extract raw fds to avoid borrow conflicts with &mut self
+        let ino_fd = self.inotify.as_raw_fd();
+        let sfd_fd = sfd.as_raw_fd();
+        let tfd_fd = tfd.as_raw_fd();
 
         self.apply_all();
         info_msg("memoptd started");
 
         loop {
+            let mut pfds = [
+                PollFd::new(unsafe { BorrowedFd::borrow_raw(ino_fd) }, PollFlags::POLLIN),
+                PollFd::new(unsafe { BorrowedFd::borrow_raw(sfd_fd) }, PollFlags::POLLIN),
+                PollFd::new(unsafe { BorrowedFd::borrow_raw(tfd_fd) }, PollFlags::POLLIN),
+            ];
+
             let _ = poll(&mut pfds, PollTimeout::from(60000u16));
 
             if pfds[0].revents().map_or(false, |r| r.contains(PollFlags::POLLIN)) {
