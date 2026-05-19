@@ -26,10 +26,6 @@ pub fn read_i64(path: &str) -> Result<i64, ()> {
     std::str::from_utf8(&buf[..n]).map_err(|_| ())?.trim().parse().map_err(|_| ())
 }
 
-pub fn read_str(path: &str) -> Result<String, ()> {
-    std::fs::read_to_string(path).map(|s| s.trim().to_string()).map_err(|_| ())
-}
-
 fn open_write(path: &str) -> std::io::Result<std::fs::File> {
     OpenOptions::new().write(true).custom_flags(libc::O_WRONLY).open(path)
 }

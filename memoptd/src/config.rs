@@ -18,7 +18,7 @@ pub struct Locks {
     pub dirty_expire: i64,
     pub dirty_writeback: i64,
     pub watch_interval: u64,
-    pub enable: bool,
+    pub _enable: bool,
 }
 
 impl Config {
@@ -68,7 +68,7 @@ impl Locks {
             dirty_expire: cfg.get_num("dirty_expire_centisecs", 1000),
             dirty_writeback: cfg.get_num("dirty_writeback_centisecs", 100),
             watch_interval: cfg.get_num("watch_interval", 5).max(1) as u64,
-            enable: cfg.get_true("enable"),
+            _enable: cfg.get_true("enable"),
         }
     }
 }
