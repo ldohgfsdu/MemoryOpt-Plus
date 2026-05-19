@@ -20,8 +20,8 @@ jobs:
         run: |
           curl -sSL https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz | sudo tar xJ -C /usr/local
           sudo ln -s /usr/local/zig-linux-x86_64-0.13.0/zig /usr/local/bin/zig
-          printf '#!/bin/sh\nexec zig cc -target aarch64-linux-musl "$@"\n' | sudo tee /usr/local/bin/zig-cc-aarch64 >/dev/null
-          printf '#!/bin/sh\nexec zig cc -target arm-linux-musleabi "$@"\n' | sudo tee /usr/local/bin/zig-cc-armv7 >/dev/null
+          printf '#!/bin/sh\nexec zig cc -target aarch64-linux-musl -nostartfiles "$@"\n' | sudo tee /usr/local/bin/zig-cc-aarch64 >/dev/null
+          printf '#!/bin/sh\nexec zig cc -target arm-linux-musleabi -nostartfiles "$@"\n' | sudo tee /usr/local/bin/zig-cc-armv7 >/dev/null
           sudo chmod +x /usr/local/bin/zig-cc-aarch64 /usr/local/bin/zig-cc-armv7
 
       - name: Build memoptd (aarch64)
