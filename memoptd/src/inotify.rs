@@ -1,3 +1,4 @@
+use std::ffi::CString;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::path::Path;
 
@@ -8,8 +9,10 @@ impl Watcher {
         let fd = unsafe { libc::inotify_init1(libc::IN_NONBLOCK) };
         if fd < 0 { return Err("inotify_init1 failed".into()); }
         let target: &Path = if path.is_dir() { path } else { path.parent().unwrap_or(Path::new("/")) };
+        let c_path = CString::new(target.as_os_str().as_encoded_bytes())
+            .map_err(|_| "inotify_add_watch: path contains null byte")?;
         let wd = unsafe {
-            libc::inotify_add_watch(fd, target.as_os_str().as_encoded_bytes().as_ptr() as *const i8,
+            libc::inotify_add_watch(fd, c_path.as_ptr(),
                                     libc::IN_MODIFY | libc::IN_CLOSE_WRITE | libc::IN_MOVED_TO)
         };
         if wd < 0 { unsafe { libc::close(fd); } return Err("inotify_add_watch failed".into()); }

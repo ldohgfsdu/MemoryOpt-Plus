@@ -9,3 +9,8 @@ disable
 memoptd/out/
 memoptd/target/
 *.zip
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

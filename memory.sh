@@ -136,7 +136,7 @@ _wait_zram_reset() {
     local zsys="$1" waited=0
     while [ "$waited" -lt 30 ]; do
         local sz; sz=$(cat "$zsys/disksize" 2>/dev/null | tr -cd '0-9')
-        [ -z "$sz" ] || [ "$sz" = "0" ] && return 0
+        if [ -z "$sz" ] || [ "$sz" = "0" ]; then return 0; fi
         sleep 0.05; waited=$((waited + 1))
     done
     return 1
@@ -163,7 +163,9 @@ config_zram() {
     [ "$dev" = "zram0" ] && grep -q zram0 /proc/swaps 2>/dev/null && swapoff /dev/block/zram0 2>/dev/null
     swapoff "$zdev" 2>/dev/null
     echo 1 > "$zsys/reset" 2>/dev/null
-    _wait_zram_reset "$zsys"
+    if ! _wait_zram_reset "$zsys"; then
+        log_warn "ZRAM reset 超时 ($dev)，继续尝试配置"
+    fi
 
     if [ -n "$backing_dev" ] && [ "$backing_dev" != "none" ]; then
         log_info "恢复回写块地址"
@@ -305,7 +307,8 @@ config_vm() {
         case "$alg" in zstd*) pc=0 ;; *) pc=1 ;; esac
     fi
     set_value "$pc" /proc/sys/vm/page-cluster quiet
-    [ -n "$(get_config_safe watermark_scale_factor)" ] && set_value "$(get_config_safe watermark_scale_factor)" /proc/sys/vm/watermark_scale_factor quiet
+    local wsf; wsf=$(get_config_safe watermark_scale_factor)
+    [ -n "$wsf" ] && set_value "$wsf" /proc/sys/vm/watermark_scale_factor quiet
     if [ -f /proc/sys/vm/extra_free_kbytes ]; then
         local efk; efk=$(get_config_safe extra_free_kbytes)
         [ "$efk" != "auto" ] && set_value "$efk" /proc/sys/vm/extra_free_kbytes quiet
@@ -349,7 +352,7 @@ run_optimization() {
     fi
     RUN_ID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null | cut -c1-4 || echo "$RANDOM")
     _log_banner
-    echo "" >> "$LOG"
+    [ -w "$LOG" ] && echo "" >> "$LOG"
     log_info "开始优化 #${RUN_ID}"
     backup_native_zram_once
     [ ! -f "$CONFIG" ] && { log_warn "缺少 $CONFIG"; return 1; }
@@ -399,11 +402,82 @@ run_optimization() {
         fi
     fi
 
-    echo "" >> "$LOG"
+    [ -w "$LOG" ] && echo "" >> "$LOG"
     log_section "摘要"
     log_summary
     log_info "优化完成 #${RUN_ID}"
-    echo "" >> "$LOG"
+    [ -w "$LOG" ] && echo "" >> "$LOG"
+}
+
+lock_params() {
+	log_info "进入参数锁定循环 (shell 回退模式)"
+	local interval; interval=$(get_config_num watch_interval 5)
+	[ "$interval" -lt 1 ] && interval=1
+
+	while true; do
+		[ -f "$DISABLE" ] && { log_info "disable 文件存在，退出锁定循环"; break; }
+		[ ! -d "$MODDIR" ] && { log_info "模块目录不存在，退出"; break; }
+
+		reload_config_cache
+
+		if [ "$_lock_enable" = "false" ]; then
+			sleep "$interval"
+			continue
+		fi
+
+		[ -n "$_lock_swappiness" ] && _raw_write "$_lock_swappiness" /proc/sys/vm/swappiness
+		[ -n "$_lock_watermark" ] && _raw_write "$_lock_watermark" /proc/sys/vm/watermark_scale_factor
+		[ -n "$_lock_dbr" ] && _raw_write "$_lock_dbr" /proc/sys/vm/dirty_background_ratio
+		[ -n "$_lock_dr" ] && _raw_write "$_lock_dr" /proc/sys/vm/dirty_ratio
+		[ -n "$_lock_vfs_cache" ] && _raw_write "$_lock_vfs_cache" /proc/sys/vm/vfs_cache_pressure
+		[ -n "$_lock_overcommit" ] && _raw_write "$_lock_overcommit" /proc/sys/vm/overcommit_memory
+		[ -n "$_lock_dirty_expire" ] && _raw_write "$_lock_dirty_expire" /proc/sys/vm/dirty_expire_centisecs
+		[ -n "$_lock_dirty_writeback" ] && _raw_write "$_lock_dirty_writeback" /proc/sys/vm/dirty_writeback_centisecs
+		[ -n "$_lock_page_cluster" ] && _raw_write "$_lock_page_cluster" /proc/sys/vm/page-cluster
+		[ -n "$_lock_compaction" ] && _raw_write "$_lock_compaction" /proc/sys/vm/compaction_proactiveness
+		[ "$_lock_stat_interval" != "" ] && _raw_write "$_lock_stat_interval" /proc/sys/vm/stat_interval
+		[ "$_lock_oom_kill_alloc" != "" ] && _raw_write "$_lock_oom_kill_alloc" /proc/sys/vm/oom_kill_allocating_task
+		[ "$_lock_oom_dump" != "" ] && _raw_write "$_lock_oom_dump" /proc/sys/vm/oom_dump_tasks
+		[ "$_lock_compact_unevict" != "" ] && _raw_write "$_lock_compact_unevict" /proc/sys/vm/compact_unevictable_allowed
+		[ "$_lock_panic_on_oom" != "" ] && _raw_write "$_lock_panic_on_oom" /proc/sys/vm/panic_on_oom
+
+		if [ -n "$_lock_extra_free" ] && [ "$_lock_extra_free" != "auto" ] && [ -f /proc/sys/vm/extra_free_kbytes ]; then
+			_raw_write "$_lock_extra_free" /proc/sys/vm/extra_free_kbytes
+		fi
+
+		if [ -n "$_lock_lmk_minfree" ] && [ -f /sys/module/lowmemorykiller/parameters/minfree ]; then
+			_raw_write "$_lock_lmk_minfree" /sys/module/lowmemorykiller/parameters/minfree
+		fi
+
+		if [ "$_NEED_ZRAM_REBUILD" = "1" ]; then
+			_NEED_ZRAM_REBUILD=0
+			log_info "重建 ZRAM (配置变更)"
+			local dev; dev=$(cat "$MODDIR/zram_dev" 2>/dev/null)
+			[ -z "$dev" ] && dev="zram0"
+			local alg; alg=$(get_config_safe algorithm); [ -z "$alg" ] && alg="lz4"
+			local size; size=$(get_config_safe zram_size); [ -z "$size" ] && size="2.0"
+			local ms; ms=$(get_config_safe max_streams); [ -z "$ms" ] && ms="auto"
+			local priority; priority=$(get_config_num zram_priority 100)
+			local sup; sup=$(get_algs "$dev")
+			local final; final=$(select_alg "$alg" "$sup")
+			echo "$final" > "$MODDIR/.current_alg"
+			config_zram "$final" "$size" "$dev" "$ms" "$priority" || \
+				log_warn "ZRAM 重建失败"
+		fi
+
+		local swap_cnt=0
+		[ -f /proc/swaps ] && swap_cnt=$(grep -c /dev/block/zram /proc/swaps 2>/dev/null || echo 0)
+		local zram_info="none"
+		[ -f "$MODDIR/zram_dev" ] && zram_info=$(cat "$MODDIR/zram_dev" 2>/dev/null)
+		local vm_info=0
+		[ -f /proc/sys/vm/swappiness ] && vm_info=$(cat /proc/sys/vm/swappiness 2>/dev/null | tr -d '\n')
+		log_heartbeat "$swap_cnt" "$zram_info" "$vm_info"
+
+		sleep "$interval"
+	done
+
+	log_info "锁定循环已退出"
+	rm -f "$PIDFILE"
 }
 
 [ "$_SELF" = "memory.sh" ] && run_optimization

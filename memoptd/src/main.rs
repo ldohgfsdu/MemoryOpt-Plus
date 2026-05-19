@@ -7,6 +7,7 @@ mod inotify;
 mod zram;
 mod heartbeat;
 
+use std::io::Write;
 use std::path::PathBuf;
 use std::process;
 use std::time::Duration;
@@ -144,7 +145,6 @@ impl Daemon {
     }
 
     fn lock_cycle(&mut self) {
-        delta_lock("swappiness", self.locks.swappiness);
         delta_lock("dirty_background_ratio", self.locks.dirty_bg);
         delta_lock("dirty_ratio", self.locks.dirty);
         delta_lock("vfs_cache_pressure", self.locks.vfs_cache);
@@ -189,7 +189,6 @@ impl Daemon {
     }
 
     fn trigger_zram_rebuild(&mut self) {
-        if std::path::Path::new("/data/local/tmp/memoryopt_trigger_rebuild").exists() { return; }
         let _ = std::fs::write("/data/local/tmp/memoryopt_trigger_rebuild", "1");
         warn_msg("ZRAM rebuild trigger written");
     }

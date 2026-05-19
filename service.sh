@@ -1,4 +1,4 @@
-#!/system/bin/sh
+﻿#!/system/bin/sh
 # MemoryOpt Plus 守护进程
 
 MODDIR=${0%/*}
@@ -20,8 +20,6 @@ _log_init; _log_rotate
 log_info "守护进程已启动 (PID $$)"
 
 # ── 工具 ──────────────────────────────────
-silent_write() { _raw_write "$1" "$2"; }
-
 get_mtime() {
     local mt; mt=$(stat -c %Y "$1" 2>/dev/null)
     [ -z "$mt" ] && mt=$(ls -l "$1" 2>/dev/null | awk '{print $6$7$8$5}')
@@ -59,7 +57,7 @@ if [ -f "$PIDFILE" ]; then
         _stop_pid "$oldpid"
     elif [ "$oldpid" = "_pid" ]; then
         log_info "检测到遗留 _pid 标记，使用 pgrep 清理"
-        for pid in $(pgrep -f "sh ${MODDIR}/service.sh" 2>/dev/null); do
+        for pid in $(pgrep -f "sh.*${MODDIR}/service.sh" 2>/dev/null); do
             _stop_pid "$pid"
         done
     fi

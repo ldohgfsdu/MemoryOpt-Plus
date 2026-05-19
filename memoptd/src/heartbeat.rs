@@ -27,7 +27,7 @@ impl Emitter {
                 .map(|r| format!("{:.2}", r)).unwrap_or_else(|| "N/A".to_string())
         });
         if let Ok(mut f) = std::fs::File::create(&self.path) {
-            let _ = f.write_all(serde_json::to_string(&json).unwrap().as_bytes());
+            let _ = f.write_all(serde_json::to_string(&json).unwrap_or_else(|_| "{}".to_string()).as_bytes());
             let _ = f.write_all(b"\n");
         }
     }

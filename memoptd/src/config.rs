@@ -57,7 +57,7 @@ impl Locks {
             Some(v) => v.parse().unwrap_or(1),
         };
         Self {
-            swappiness: sw.min(32767).max(0),
+            swappiness: sw.min(200).max(0),
             dirty_bg: dbr, dirty: dr,
             vfs_cache: cfg.get_num("vfs_cache_pressure", 125),
             watermark: cfg.get_num("watermark_scale_factor", 100),

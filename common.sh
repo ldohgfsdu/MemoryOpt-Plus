@@ -5,7 +5,7 @@
 _COMMON_SH_LOADED=1
 
 MAX_LOG_SIZE=$((1024 * 1024))
-_HEARTBEAT_FILE="/data/local/tmp/memoryopt_heartbeat"
+_HEARTBEAT_FILE="/data/local/tmp/memoryopt_heartbeat.json"
 
 _CONFIG_CACHE_MTIME=0
 
@@ -14,8 +14,9 @@ get_config() {
     [ ! -f "$CONFIG" ] && { echo ""; return; }
     local mt
     mt=$(stat -c %Y "$CONFIG" 2>/dev/null)
-    [ -z "$mt" ] || [ "$mt" = "0" ] && \
+    if [ -z "$mt" ] || [ "$mt" = "0" ]; then
         mt=$(ls -l "$CONFIG" 2>/dev/null | awk '{print $6$7$8$5}')
+    fi
     if [ "$mt" != "$_CONFIG_CACHE_MTIME" ]; then
         _CONFIG_CACHE_MTIME=$mt
         eval "$(awk -F= '
@@ -81,16 +82,6 @@ detect_oem() {
     echo "$oem"
 }
 
-calc_extra_free_kbytes() {
-    local st; st=$(grep SwapTotal /proc/meminfo | tr -cd '0-9'); st=$((${st:-0} / 1024))
-    if   [ "$st" -gt 8000 ]; then echo 131072
-    elif [ "$st" -gt 6000 ]; then echo 98304
-    elif [ "$st" -gt 4500 ]; then echo 65536
-    elif [ "$st" -gt 2000 ]; then echo 32768
-    else echo 20480
-    fi
-}
-
 _HAS_RESETPROP=false
 command -v resetprop >/dev/null 2>&1 && _HAS_RESETPROP=true
 
@@ -144,7 +135,7 @@ set_value() {
     val=$(echo "$val" | sed 's/#.*//;s/^[[:space:]]*//;s/[[:space:]]*$//')
     if [ ! -f "$file" ]; then
         _LOG_COUNT_SKIP=$((_LOG_COUNT_SKIP + 1))
-        [ "$quiet" != "quiet" ] && _log_msg "!" "$file 不存在"
+        [ "$quiet" != "quiet" ] && _log_msg "!" "$file not found"
         return 1
     fi
     if _raw_write "$val" "$file"; then
@@ -225,7 +216,7 @@ log_section() { _log_msg "i" "────────── $1 ─────�
 
 log_write() {
     local file="$1" expected="$2" quiet="$3"
-    local actual; actual=$(head -n1 "$file" 2>/dev/null | tr -d '\n\r\t ')
+    local actual; actual=$(head -n1 "$file" 2>/dev/null | tr -d '\n\r')
     if [ "$actual" = "$expected" ]; then
         _LOG_COUNT_OK=$((_LOG_COUNT_OK + 1))
         [ "$quiet" != "quiet" ] && _log_msg "i" "写入: $file → $expected"
@@ -247,9 +238,7 @@ log_optional() {
     return 1
 }
 
-log_ok()   { _LOG_COUNT_OK=$((_LOG_COUNT_OK + 1)); }
 log_fail() { _LOG_COUNT_FAIL=$((_LOG_COUNT_FAIL + 1)); _log_msg "!" "$1"; }
-log_skip() { _LOG_COUNT_SKIP=$((_LOG_COUNT_SKIP + 1)); }
 
 log_time() { _log_msg "i" "$1 耗时: ${2}ms"; }
 

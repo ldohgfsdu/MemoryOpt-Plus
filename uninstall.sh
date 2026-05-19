@@ -1,4 +1,4 @@
-#!/system/bin/sh
+﻿#!/system/bin/sh
 # MemoryOpt Plus 卸载脚本
 
 MODDIR=${0%/*}
@@ -12,25 +12,7 @@ if [ -z "$MODDIR" ] || [ ! -d "$MODDIR" ]; then
     exit 1
 fi
 
-_stop_pid() {
-    local pid="$1"
-    [ -z "$pid" ] && return
-    kill -0 "$pid" 2>/dev/null || return
-    kill "$pid" 2>/dev/null
-    local i=0
-    while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 10 ]; do
-        sleep 0.3; i=$((i + 1))
-    done
-    kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null
-}
-
-_prop_del() {
-    if command -v resetprop >/dev/null 2>&1; then
-        resetprop -d "$1" 2>/dev/null
-    else
-        setprop "$1" "" 2>/dev/null
-    fi
-}
+. "$MODDIR/common.sh"
 
 # 终止 memoptd
 for pid in $(pgrep -x memoptd 2>/dev/null); do
@@ -42,7 +24,7 @@ if [ -f "$MODDIR/daemon.pid" ]; then
     oldpid=$(cat "$MODDIR/daemon.pid" 2>/dev/null)
     if [ "$oldpid" = "_pid" ]; then
         echo "检测到遗留 _pid 标记，使用 pgrep 清理"
-        for pid in $(pgrep -f "sh ${MODDIR}/service.sh" 2>/dev/null); do
+        for pid in $(pgrep -f "sh.*${MODDIR}/service.sh" 2>/dev/null); do
             _stop_pid "$pid"
         done
     elif [ -n "$oldpid" ]; then
@@ -51,8 +33,8 @@ if [ -f "$MODDIR/daemon.pid" ]; then
 fi
 
 rm -f "$REBUILD_LOCK"
-for pid in $(pgrep -f "sh ${MODDIR}/service.sh" 2>/dev/null) \
-           $(pgrep -f "sh ${MODDIR}/memory.sh"  2>/dev/null); do
+for pid in $(pgrep -f "sh.*${MODDIR}/service.sh" 2>/dev/null) \
+           $(pgrep -f "sh.*${MODDIR}/memory.sh"  2>/dev/null); do
     [ "$pid" = "$$" ] && continue
     [ -n "$pid" ] && _stop_pid "$pid"
 done
@@ -69,6 +51,10 @@ if [ -d "$ZRAM_BACKUP" ]; then
         [ -n "$algo" ] && echo "$algo" > /sys/block/zram0/comp_algorithm 2>/dev/null || \
             echo "Warning: 无法恢复原生压缩算法"
     fi
+    if [ -s "$ZRAM_BACKUP/max_comp_streams" ] && [ -f /sys/block/zram0/max_comp_streams ]; then
+        ms=$(cat "$ZRAM_BACKUP/max_comp_streams" 2>/dev/null)
+        [ -n "$ms" ] && echo "$ms" > /sys/block/zram0/max_comp_streams 2>/dev/null
+    fi
     if [ -s "$ZRAM_BACKUP/disksize" ] && [ -f /sys/block/zram0/disksize ]; then
         size=$(cat "$ZRAM_BACKUP/disksize" 2>/dev/null)
         if [ -n "$size" ] && [ "$size" -gt 0 ] 2>/dev/null; then
@@ -83,10 +69,6 @@ if [ -d "$ZRAM_BACKUP" ]; then
         else
             echo "原生 zram0 大小为 0，跳过恢复"
         fi
-    fi
-    if [ -s "$ZRAM_BACKUP/max_comp_streams" ] && [ -f /sys/block/zram0/max_comp_streams ]; then
-        ms=$(cat "$ZRAM_BACKUP/max_comp_streams" 2>/dev/null)
-        [ -n "$ms" ] && echo "$ms" > /sys/block/zram0/max_comp_streams 2>/dev/null
     fi
     rm -rf "$ZRAM_BACKUP"
 fi
@@ -134,7 +116,6 @@ _prop_del persist.sys.oplus.process_manager.bg_limit
 rm -rf "$PERSIST_BACKUP" 2>/dev/null
 rm -f /data/local/tmp/memoryopt_heartbeat.json 2>/dev/null
 rm -f "$MODDIR/disable" "$MODDIR/daemon.pid" "$MODDIR/zram_dev" \
-      "$MODDIR/.current_alg" "$MODDIR/.zram_backup_stamp" \
-      "$MODDIR/.rebuild_lock" 2>/dev/null
+      "$MODDIR/.current_alg" "$MODDIR/.rebuild_lock" 2>/dev/null
 
 echo "MemoryOpt Plus 卸载完成"

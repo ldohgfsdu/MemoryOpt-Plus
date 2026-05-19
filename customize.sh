@@ -1,4 +1,4 @@
-#!/system/bin/sh
+﻿#!/system/bin/sh
 # MemoryOpt Plus 安装脚本
 
 SKIPUNZIP=0
@@ -76,8 +76,8 @@ preserve_config() {
             if grep -qE "^[[:space:]]*${escaped_key}[[:space:]]*=" "$MODPATH/swap.ini" 2>/dev/null; then
                 sed -i "s|^[[:space:]]*${escaped_key}[[:space:]]*=.*|${key}=${escaped_val}|" "$MODPATH/swap.ini" 2>/dev/null
             else
-                echo "${key}=${escaped_val}" >> "$MODPATH/swap.ini"
-                ui_print "  追加新配置项: ${key}=${escaped_val}"
+                echo "${key}=${val}" >> "$MODPATH/swap.ini"
+                ui_print "  追加新配置项: ${key}=${val}"
             fi
         done < "$old_mod_dir/swap.ini"
         # 迁移持久备份
@@ -172,8 +172,11 @@ backup_native_zram() {
         touch "$MODPATH/zram_backup/.done"
         local persist_dir="/data/local/tmp/memoryopt_backup"
         mkdir -p "$persist_dir"
-        cp -f "$MODPATH/zram_backup"/* "$persist_dir/" 2>/dev/null
-        touch "$persist_dir/.zram_done"
+        local copied=0
+        for f in "$MODPATH/zram_backup"/*; do
+            [ -f "$f" ] && cp -f "$f" "$persist_dir/" 2>/dev/null && copied=1
+        done
+        [ "$copied" = "1" ] && touch "$persist_dir/.zram_done"
         ui_print "- 已备份原生 ZRAM 配置（含持久副本）"
     fi
 }
