@@ -20,6 +20,11 @@ jobs:
         with:
           tool: cargo-zigbuild
 
+      - name: Install zig
+        run: |
+          curl -sSL https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz | tar xJ -C /tmp
+          sudo install -m755 /tmp/zig-linux-x86_64-0.13.0/zig /usr/local/bin/zig
+
       - name: Build memoptd (aarch64)
         run: |
           cd memoptd
