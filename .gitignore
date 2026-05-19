@@ -8,3 +8,4 @@ zram_dev
 disable
 memoptd/out/
 memoptd/target/
+*.zip
