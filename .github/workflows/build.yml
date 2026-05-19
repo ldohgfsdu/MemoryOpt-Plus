@@ -29,7 +29,7 @@ jobs:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: zig-cc-aarch64
         run: |
           cd memoptd
-          RUSTFLAGS="-C link-arg=-Wl,--allow-multiple-definition" cargo build --release --target aarch64-unknown-linux-musl
+          RUSTFLAGS="-C link-arg=-Wl,-z,muldefs" cargo build --release --target aarch64-unknown-linux-musl
           mkdir -p out
           cp target/aarch64-unknown-linux-musl/release/memoptd out/
 
@@ -38,7 +38,7 @@ jobs:
           CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABI_LINKER: zig-cc-armv7
         run: |
           cd memoptd
-          RUSTFLAGS="-C link-arg=-Wl,--allow-multiple-definition" cargo build --release --target armv7-unknown-linux-musleabi
+          RUSTFLAGS="-C link-arg=-Wl,-z,muldefs" cargo build --release --target armv7-unknown-linux-musleabi
           cp target/armv7-unknown-linux-musleabi/release/memoptd out/memoptd.arm
 
       - name: Package module
