@@ -6,10 +6,14 @@ VERSION=$(grep "^version=" module.prop 2>/dev/null | head -n1 | cut -d'=' -f2- |
 [ -z "$VERSION" ] && VERSION="V26.05.20"
 OUTPUT="${MODULE_NAME}_${VERSION}.zip"
 
-echo "==> Building memoptd (if source exists)..."
-if [ -f "memoptd/Cargo.toml" ]; then
-    ( cd memoptd && bash build.sh )
+echo "==> Checking memoptd binaries..."
+if [ -f "memoptd/out/memoptd" ] && [ -f "memoptd/out/memoptd.arm" ]; then
+    echo "  Binaries already built, copying..."
     cp -f memoptd/out/memoptd bin/ 2>/dev/null || true
+    cp -f memoptd/out/memoptd.arm bin/ 2>/dev/null || true
+elif [ -f "memoptd/Cargo.toml" ]; then
+    echo "  Source found but no prebuilt binaries — build manually with: cd memoptd && cargo build --release"
+    echo "  Skipping memoptd (will use shell fallback if no binaries in bin/)"
 else
     echo "  (Rust source not found, skipping)"
 fi
