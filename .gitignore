@@ -1,0 +1,11 @@
+*.tmp
+log.txt*
+daemon.pid
+zram_dev
+.rebuild_lock
+.current_alg
+.oem_type
+disable
+memoptd/out/
+memoptd/target/
+*.zip

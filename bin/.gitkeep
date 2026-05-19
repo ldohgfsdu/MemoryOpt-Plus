@@ -1,0 +1,3 @@
+# 放置编译后的 memoptd 和 memoptd.arm 二进制文件
+# memoptd: aarch64
+# memoptd.arm: armv7 (可选)
