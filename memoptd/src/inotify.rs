@@ -1,5 +1,5 @@
 use std::ffi::CString;
-use std::os::unix::io::{AsRawFd, RawFd};
+use std::os::unix::io::{AsFd, AsRawFd, BorrowedFd, RawFd};
 use std::path::Path;
 
 pub struct Watcher { fd: RawFd, wd: i32 }
@@ -28,6 +28,7 @@ impl Watcher {
 }
 
 impl AsRawFd for Watcher { fn as_raw_fd(&self) -> RawFd { self.fd } }
+impl AsFd for Watcher { fn as_fd(&self) -> BorrowedFd<'_> { unsafe { BorrowedFd::borrow_raw(self.fd) } } }
 
 impl Drop for Watcher {
     fn drop(&mut self) { unsafe { libc::inotify_rm_watch(self.fd, self.wd); libc::close(self.fd); } }

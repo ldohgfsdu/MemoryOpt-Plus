@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use nix::sys::signal::{Signal, SigSet};
 use nix::sys::signalfd::SignalFd;
-use nix::sys::timerfd::{ClockId, TimerFd, TimerFlags};
+use nix::sys::timerfd::{ClockId, TimerFd, TimerFlags, TimerSetTimeFlags, Expiration};
 use nix::poll::{poll, PollFd, PollFlags, PollTimeout};
 
 fn main() {
@@ -75,11 +75,11 @@ impl Daemon {
             Err(e) => { error_msg("timerfd", &e.to_string()); process::exit(1); }
         };
         tfd.set(
-            nix::sys::timerfd::TimerSetTimeFlags::empty(),
-            &nix::sys::timerfd::TimerSpec {
-                it_value: nix::sys::time::TimeSpec::from(interval),
-                it_interval: nix::sys::time::TimeSpec::from(interval),
-            },
+            TimerSetTimeFlags::empty(),
+            Expiration::IntervalDelayed(
+                nix::sys::time::TimeSpec::from(interval),
+                nix::sys::time::TimeSpec::from(interval),
+            ),
         ).ok();
 
         let mut pfds = [
