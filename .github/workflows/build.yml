@@ -66,6 +66,5 @@ jobs:
         with:
           files: "*.zip"
           tag_name: latest
-          prerelease: true
-          body: "Latest build from master branch."
+          body: "自动构建 · 完整版 · 可直接刷入"
         continue-on-error: true
