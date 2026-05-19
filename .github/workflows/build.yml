@@ -11,14 +11,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+
       - name: Install cross
         run: |
           set -ex
           curl -sSL https://github.com/cross-rs/cross/releases/latest/download/cross-x86_64-unknown-linux-musl.tar.gz -o /tmp/cross.tar.gz
           tar xzf /tmp/cross.tar.gz -C /tmp
-          ls -la /tmp/cross*
           sudo install -m755 /tmp/cross /usr/local/bin/cross
           cross --version
+          sudo chmod 666 /var/run/docker.sock
           docker version
 
       - name: Build memoptd (aarch64)
