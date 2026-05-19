@@ -41,6 +41,7 @@ struct Daemon {
     locks: config::Locks,
     heartbeat: heartbeat::Emitter,
     last_zram_ok: bool,
+    boot_cycles: u64,
 }
 
 impl Daemon {
@@ -56,6 +57,7 @@ impl Daemon {
             locks,
             heartbeat,
             last_zram_ok: false,
+            boot_cycles: 0,
         })
     }
 
@@ -123,7 +125,7 @@ impl Daemon {
     }
 
     fn apply_all(&mut self) {
-        lock_sysctl("swappiness", self.locks.swappiness);
+        lock_sysctl("swappiness", self.locks.swappiness.min(80));
         lock_sysctl("dirty_background_ratio", self.locks.dirty_bg);
         lock_sysctl("dirty_ratio", self.locks.dirty);
         lock_sysctl("vfs_cache_pressure", self.locks.vfs_cache);
@@ -172,8 +174,13 @@ impl Daemon {
         }
         self.last_zram_ok = zram::check_online();
 
+        self.boot_cycles += 1;
         let psi_data = psi::read_memory_pressure();
-        let effective_swappiness = if psi_data.some_avg10 > 10.0 {
+        let effective_swappiness = if self.boot_cycles < 24 {
+            let ramp = self.locks.swappiness.min(80)
+                + (self.locks.swappiness.saturating_sub(80)) * self.boot_cycles as i64 / 24;
+            if psi_data.some_avg10 > 15.0 { ramp / 2 } else { ramp }
+        } else if psi_data.some_avg10 > 10.0 {
             (self.locks.swappiness / 2).min(80)
         } else {
             self.locks.swappiness
