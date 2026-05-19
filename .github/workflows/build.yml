@@ -1,0 +1,41 @@
+name: Build & Package
+on:
+  push:
+    branches: [master]
+    tags: ['*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-musl,armv7-unknown-linux-musleabi
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+
+      - name: Build memoptd (aarch64)
+        run: |
+          cd memoptd
+          cross build --release --target aarch64-unknown-linux-musl
+          mkdir -p out
+          cp target/aarch64-unknown-linux-musl/release/memoptd out/
+
+      - name: Build memoptd (armv7)
+        run: |
+          cd memoptd
+          cross build --release --target armv7-unknown-linux-musleabi
+          cp target/armv7-unknown-linux-musleabi/release/memoptd out/memoptd.arm
+
+      - name: Package module
+        run: bash pack.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MemoryOpt_Plus
+          path: "*.zip"

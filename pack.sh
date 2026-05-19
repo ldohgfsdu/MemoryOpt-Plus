@@ -31,9 +31,16 @@ cp -f bin/* _pack/bin/ 2>/dev/null || true
 # 复制 META-INF
 cp -f META-INF/com/google/android/update-binary META-INF/com/google/android/updater-script _pack/META-INF/com/google/android/
 
-# 打包
+# 打包 (7z 保证跨平台正斜杠路径)
 cd _pack
-zip -r9 "../${OUTPUT}" . >/dev/null
+if command -v 7z >/dev/null 2>&1; then
+    7z a -tzip "../${OUTPUT}" . -mx=9 -bso0 -bsp0
+elif command -v zip >/dev/null 2>&1; then
+    zip -r9 "../${OUTPUT}" . >/dev/null
+else
+    echo "ERROR: no 7z or zip available"
+    exit 1
+fi
 cd ..
 
 rm -rf _pack

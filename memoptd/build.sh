@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-TARGET="${1:-aarch64-linux-musl}"
+TARGET="${1:-aarch64-unknown-linux-musl}"
 OUT_DIR="out"
 BIN_NAME="memoptd"
 
