@@ -16,12 +16,9 @@ jobs:
           toolchain: stable
           targets: aarch64-unknown-linux-musl,armv7-unknown-linux-musleabi
 
-      - name: Install lld
-        run: sudo apt-get update && sudo apt-get install -y lld
-
       - name: Build memoptd (aarch64)
         env:
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: lld
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: rust-lld
         run: |
           cd memoptd
           cargo build --release --target aarch64-unknown-linux-musl
@@ -30,7 +27,7 @@ jobs:
 
       - name: Build memoptd (armv7)
         env:
-          CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABI_LINKER: lld
+          CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABI_LINKER: rust-lld
         run: |
           cd memoptd
           cargo build --release --target armv7-unknown-linux-musleabi
