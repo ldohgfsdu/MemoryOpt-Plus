@@ -139,7 +139,10 @@ impl Daemon {
     }
 
     fn apply_all(&mut self) {
-        lock_sysctl("swappiness", self.locks.swappiness);
+        // Use a boot-safe swappiness (80). The lock_cycle boot ramp
+        // will progressively increase it to the configured value over
+        // the first 24 cycles (2 minutes at watch_interval=5).
+        lock_sysctl("swappiness", self.locks.swappiness.min(80));
         lock_sysctl("dirty_background_ratio", self.locks.dirty_bg);
         lock_sysctl("dirty_ratio", self.locks.dirty);
         lock_sysctl("vfs_cache_pressure", self.locks.vfs_cache);
@@ -179,8 +182,14 @@ impl Daemon {
         delta_lock("oom_dump_tasks", 0);
         delta_lock("compact_unevictable_allowed", 1);
         delta_lock("panic_on_oom", 0);
+        delta_lock("block_dump", 0);
         if self.locks.dirty_expire > 0 { delta_lock("dirty_expire_centisecs", self.locks.dirty_expire); }
         if self.locks.dirty_writeback > 0 { delta_lock("dirty_writeback_centisecs", self.locks.dirty_writeback); }
+
+        if std::path::Path::new("/sys/kernel/mm/lru_gen/enabled").exists() {
+            sysfs::write_str("/sys/kernel/mm/lru_gen/enabled", "0x0003");
+            sysfs::write_str("/sys/kernel/mm/lru_gen/min_ttl_ms", "10000");
+        }
 
         if !zram::check_online() && self.last_zram_ok {
             warn_msg("ZRAM device lost, triggering rebuild");

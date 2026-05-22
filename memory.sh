@@ -260,7 +260,9 @@ swappiness_max() {
     if [ -n "$_SWAPPINESS_MAX_CACHED" ]; then echo "$_SWAPPINESS_MAX_CACHED"; return; fi
     local cur max
     cur=$(cat /proc/sys/vm/swappiness 2>/dev/null)
-    echo 32767 > /proc/sys/vm/swappiness 2>/dev/null
+    # Use a SAFE probe (200) instead of 32767 to avoid triggering
+    # a system-wide swap storm that fills ZRAM and causes OOM.
+    echo 200 > /proc/sys/vm/swappiness 2>/dev/null
     max=$(cat /proc/sys/vm/swappiness 2>/dev/null)
     [ -n "$cur" ] && echo "$cur" > /proc/sys/vm/swappiness 2>/dev/null || echo 60 > /proc/sys/vm/swappiness 2>/dev/null
     _SWAPPINESS_MAX_CACHED="${max:-200}"
@@ -393,14 +395,9 @@ run_optimization() {
     bind_lmkd
     log_time "参数调优" "$(timer_end $start)"
 
-    if [ -f "$MODDIR/zram_dev" ]; then
-        if _check_mem_pressure; then
-            sync; echo 1 > /proc/sys/vm/drop_caches 2>/dev/null
-            log_info "已清除页面缓存"
-        else
-            log_info "跳过页面缓存清除（内存不足）"
-        fi
-    fi
+    # drop_caches is intentionally NOT called here:
+    # it causes a system-wide page cache flush that forces every
+    # app to reload from flash, triggering I/O storms and OOM kills.
 
     [ -w "$LOG" ] && echo "" >> "$LOG"
     log_section "摘要"

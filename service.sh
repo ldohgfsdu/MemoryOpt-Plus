@@ -153,6 +153,8 @@ reload_config_cache() {
 }
 
 # ── 主入口 ────────────────────────────────
+_ZRAM_RUN_STAMP="$MODDIR/.zram_done"
+
 main() {
     if [ "$(get_config_safe early_start)" = "true" ]; then
         wait_vm_ready
@@ -162,14 +164,28 @@ main() {
     [ -f "$DISABLE" ] && { log_info "disable 文件存在，退出"; exit 0; }
     [ ! -d "$MODDIR" ] && exit 0
 
+    # Guard: only run the heavy ZRAM init once per boot.
+    # If service.sh gets restarted (Magisk watchdog / memoptd crash),
+    # we skip the destructive re-init and go straight to the lock loop.
+    local already_optimized="false"
+    [ -f "$_ZRAM_RUN_STAMP" ] && already_optimized="true"
+
     if [ -x "$MEMOPTD" ]; then
-        log_info "检测到 memoptd (Rust 引擎)，先执行 ZRAM 初始化再移交 VM 锁定"
-        run_optimization
+        if [ "$already_optimized" = "false" ]; then
+            log_info "检测到 memoptd (Rust 引擎)，先执行 ZRAM 初始化再移交 VM 锁定"
+            run_optimization
+            touch "$_ZRAM_RUN_STAMP"
+        else
+            log_info "ZRAM 已初始化，直接移交 memoptd"
+        fi
         exec "$MEMOPTD" "$CONFIG"
     fi
 
     log_info "使用 shell 引擎 (回退模式)"
-    run_optimization
+    if [ "$already_optimized" = "false" ]; then
+        run_optimization
+        touch "$_ZRAM_RUN_STAMP"
+    fi
     lock_params
 }
 
