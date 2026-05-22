@@ -25,7 +25,7 @@ rm -rf _pack
 mkdir -p _pack/bin _pack/META-INF/com/google/android
 
 # 复制所有模块文件
-for f in module.prop customize.sh service.sh post-fs-data.sh uninstall.sh common.sh memory.sh swap.ini README.md; do
+for f in module.prop customize.sh service.sh post-fs-data.sh uninstall.sh common.sh memory.sh swap.ini README.md UPDATE.md; do
     [ -f "$f" ] && cp "$f" _pack/
 done
 

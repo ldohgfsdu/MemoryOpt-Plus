@@ -163,7 +163,8 @@ main() {
     [ ! -d "$MODDIR" ] && exit 0
 
     if [ -x "$MEMOPTD" ]; then
-        log_info "检测到 memoptd (Rust 引擎)，直接移交 VM 锁定"
+        log_info "检测到 memoptd (Rust 引擎)，先执行 ZRAM 初始化再移交 VM 锁定"
+        run_optimization
         exec "$MEMOPTD" "$CONFIG"
     fi
 

@@ -18,6 +18,18 @@ use nix::sys::signalfd::SignalFd;
 use nix::sys::timerfd::{ClockId, TimerFd, TimerFlags, TimerSetTimeFlags, Expiration};
 use nix::poll::{poll, PollFd, PollFlags, PollTimeout};
 
+/// Helper to extract raw fd and keep the owner alive.
+/// Prevents use-after-free by ensuring the owner outlives the BorrowedFd.
+struct OwnedFd {
+    _owner: SignalFd,
+    raw: i32,
+}
+
+struct OwnedTimerFd {
+    _owner: TimerFd,
+    raw: i32,
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let config_path = args.get(1)
@@ -85,19 +97,21 @@ impl Daemon {
             TimerSetTimeFlags::empty(),
         ).ok();
 
-        // Extract raw fds to avoid borrow conflicts with &mut self
+        // Wrap fds with their owners to guarantee safe lifetimes
+        let mut sfd = OwnedFd { raw: sfd.as_raw_fd(), _owner: sfd };
+        let mut tfd = OwnedTimerFd { raw: tfd.as_fd().as_raw_fd(), _owner: tfd };
         let ino_fd = self.inotify.as_raw_fd();
-        let sfd_fd = sfd.as_raw_fd();
-        let tfd_fd = tfd.as_fd().as_raw_fd();
 
         self.apply_all();
         info_msg("memoptd started");
 
         loop {
             let mut pfds = [
+                // SAFETY: ino_fd is backed by self.inotify which outlives the loop.
+                // sfd.raw and tfd.raw are backed by sfd._owner / tfd._owner on the stack above.
                 PollFd::new(unsafe { BorrowedFd::borrow_raw(ino_fd) }, PollFlags::POLLIN),
-                PollFd::new(unsafe { BorrowedFd::borrow_raw(sfd_fd) }, PollFlags::POLLIN),
-                PollFd::new(unsafe { BorrowedFd::borrow_raw(tfd_fd) }, PollFlags::POLLIN),
+                PollFd::new(unsafe { BorrowedFd::borrow_raw(sfd.raw) }, PollFlags::POLLIN),
+                PollFd::new(unsafe { BorrowedFd::borrow_raw(tfd.raw) }, PollFlags::POLLIN),
             ];
 
             let _ = poll(&mut pfds, PollTimeout::from(60000u16));
@@ -108,7 +122,7 @@ impl Daemon {
             }
 
             if pfds[1].revents().map_or(false, |r| r.contains(PollFlags::POLLIN)) {
-                while let Ok(Some(event)) = sfd.read_signal() {
+                while let Ok(Some(event)) = sfd._owner.read_signal() {
                     match event.ssi_signo as i32 {
                         libc::SIGHUP => self.reload(),
                         libc::SIGUSR1 => self.trigger_zram_rebuild(),
@@ -118,14 +132,14 @@ impl Daemon {
             }
 
             if pfds[2].revents().map_or(false, |r| r.contains(PollFlags::POLLIN)) {
-                tfd.wait().ok();
+                tfd._owner.wait().ok();
                 self.lock_cycle();
             }
         }
     }
 
     fn apply_all(&mut self) {
-        lock_sysctl("swappiness", self.locks.swappiness.min(80));
+        lock_sysctl("swappiness", self.locks.swappiness);
         lock_sysctl("dirty_background_ratio", self.locks.dirty_bg);
         lock_sysctl("dirty_ratio", self.locks.dirty);
         lock_sysctl("vfs_cache_pressure", self.locks.vfs_cache);
