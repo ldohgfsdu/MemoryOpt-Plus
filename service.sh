@@ -8,7 +8,6 @@ PIDFILE="$MODDIR/daemon.pid"
 LOG="$MODDIR/log.txt"
 REBUILD_LOCK="$MODDIR/.rebuild_lock"
 PIDLOCK="$PIDFILE.lock"
-MEMOPTD="$MODDIR/bin/memoptd"
 
 . "$MODDIR/common.sh"
 . "$MODDIR/memory.sh"
