@@ -225,30 +225,6 @@ set_perms() {
     done
 }
 
-deploy_memoptd() {
-    local arch
-    arch=$(uname -m)
-    local src=""
-    case "$arch" in
-        aarch64|arm64) src="$MODPATH/bin/memoptd" ;;
-        armv7l|armv8l|armeabi-v7a) src="$MODPATH/bin/memoptd.arm" ;;
-        *) ui_print "- 不支持的架构: $arch，跳过 memoptd 部署"; return 0 ;;
-    esac
-    if [ -f "$src" ]; then
-        chmod 0755 "$src"
-        ui_print "- memoptd 已部署 ($arch)"
-    else
-        ui_print "- memoptd 二进制未找到 ($arch)，将使用 shell 回退"
-    fi
-    # 清理不需要的架构
-    if [ -f "$MODPATH/bin/memoptd" ] && [ "$arch" != "aarch64" ] && [ "$arch" != "arm64" ]; then
-        rm -f "$MODPATH/bin/memoptd" 2>/dev/null
-    fi
-    if [ -f "$MODPATH/bin/memoptd.arm" ] && [ "$arch" = "aarch64" ]; then
-        rm -f "$MODPATH/bin/memoptd.arm" 2>/dev/null
-    fi
-}
-
 main() {
     ui_print "MemoryOpt Plus 安装中..."
     remove_conflicts
@@ -263,7 +239,6 @@ main() {
     backup_vm
     sanitize_text
     set_perms
-    deploy_memoptd
     ui_print "- 安装完成（重启后生效）"
 }
 

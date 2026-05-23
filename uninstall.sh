@@ -14,11 +14,6 @@ fi
 
 . "$MODDIR/common.sh"
 
-# 终止 memoptd 并等待退出
-for pid in $(pgrep -x memoptd 2>/dev/null); do
-    _stop_pid "$pid"
-done
-
 # 终止守护进程
 if [ -f "$MODDIR/daemon.pid" ]; then
     oldpid=$(cat "$MODDIR/daemon.pid" 2>/dev/null)

@@ -14,37 +14,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@v1
-        with:
-          toolchain: stable
-          targets: aarch64-unknown-linux-musl,armv7-unknown-linux-musleabi
-
-      - name: Install rust-lld
-        run: rustup component add llvm-tools-preview
-
-      - name: Configure cargo linker
-        run: |
-          mkdir -p memoptd/.cargo
-          cat > memoptd/.cargo/config.toml << 'EOF'
-          [target.aarch64-unknown-linux-musl]
-          linker = "rust-lld"
-          [target.armv7-unknown-linux-musleabi]
-          linker = "rust-lld"
-          EOF
-
-      - name: Build memoptd (aarch64)
-        run: |
-          cd memoptd
-          cargo build --release --target aarch64-unknown-linux-musl
-          mkdir -p out
-          cp target/aarch64-unknown-linux-musl/release/memoptd out/
-
-      - name: Build memoptd (armv7)
-        run: |
-          cd memoptd
-          cargo build --release --target armv7-unknown-linux-musleabi
-          cp target/armv7-unknown-linux-musleabi/release/memoptd out/memoptd.arm
-
       - name: Package module
         run: bash pack.sh
 
