@@ -52,3 +52,15 @@ pub fn read_i64(path: &str) -> Result<i64, ()> {
 fn open_write(path: &str) -> std::io::Result<std::fs::File> {
     OpenOptions::new().write(true).custom_flags(libc::O_WRONLY).open(path)
 }
+
+pub fn read_mem_total_bytes() -> u64 {
+    std::fs::read_to_string("/proc/meminfo")
+        .ok()
+        .and_then(|c| {
+            c.lines().find(|l| l.starts_with("MemTotal:"))
+                .and_then(|l| l.split_whitespace().nth(1))
+                .and_then(|s| s.parse::<u64>().ok())
+                .map(|kb| kb * 1024)
+        })
+        .unwrap_or(4u64 * 1024 * 1024 * 1024)
+}

@@ -20,6 +20,10 @@ pub struct Locks {
     pub watch_interval: u64,
     pub _enable: bool,
     pub enable_mglru: bool,
+    pub zram_algorithm: String,
+    pub zram_size: String,
+    pub zram_streams: String,
+    pub zram_priority: i64,
 }
 
 impl Config {
@@ -77,6 +81,10 @@ impl Locks {
             watch_interval: cfg.get_num("watch_interval", 5).max(1) as u64,
             _enable: cfg.get_true("enable"),
             enable_mglru: cfg.get_true("enable_mglru"),
+            zram_algorithm: cfg.get("algorithm").unwrap_or("lz4").to_string(),
+            zram_size: cfg.get("zram_size").unwrap_or("2.0").to_string(),
+            zram_streams: cfg.get("max_streams").unwrap_or("auto").to_string(),
+            zram_priority: cfg.get_num("zram_priority", 100),
         }
     }
 }

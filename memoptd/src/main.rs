@@ -102,6 +102,7 @@ impl Daemon {
         let tfd_fd = tfd.as_fd().as_raw_fd();
 
         self.apply_all();
+        self.configure_zram();
         sysfs::log_to_file("i", "memoptd started");
 
         loop {
@@ -258,9 +259,23 @@ impl Daemon {
     }
 
     fn trigger_zram_rebuild(&mut self) {
-        let _ = std::fs::write("/data/local/tmp/memoryopt_trigger_rebuild", "1");
-        warn_msg("ZRAM rebuild trigger written");
-        sysfs::log_to_file("i", "ZRAM rebuild trigger written");
+        self.configure_zram();
+    }
+
+    fn configure_zram(&mut self) {
+        let dev = zram::get_current_device();
+        if !zram::configure(
+            &self.locks.zram_algorithm,
+            &self.locks.zram_size,
+            &dev,
+            &self.locks.zram_streams,
+            self.locks.zram_priority,
+        ) {
+            let mem_bytes = sysfs::read_mem_total_bytes();
+            let fallback_size = if mem_bytes > 4u64 * 1024 * 1024 * 1024 { "2.0" } else { "1.0" };
+            sysfs::log_to_file("!", "zram config failed, trying lz4 fallback");
+            zram::configure("lz4", fallback_size, &dev, "auto", self.locks.zram_priority);
+        }
     }
 }
 
