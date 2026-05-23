@@ -177,7 +177,7 @@ main() {
 
     if [ -x "$MEMOPTD" ]; then
         log_info "检测到 memoptd (Rust 引擎)，直接移交 VM 锁定"
-        exec "$MEMOPTD" "$CONFIG"
+        exec "$MEMOPTD" "$CONFIG" 2>>"$LOG"
     fi
 
     log_info "使用 shell 引擎 (回退模式)"
