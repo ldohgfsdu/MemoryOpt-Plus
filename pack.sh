@@ -3,7 +3,7 @@ set -euo pipefail
 
 MODULE_NAME="MemoryOpt_Plus"
 VERSION=$(grep "^version=" module.prop 2>/dev/null | head -n1 | cut -d'=' -f2- | sed 's/^[[:space:]]*//')
-[ -z "$VERSION" ] && VERSION="V26.05.20"
+[ -z "$VERSION" ] && VERSION="V26.05.23"
 OUTPUT="${MODULE_NAME}_${VERSION}.zip"
 
 echo "==> Assembling module..."

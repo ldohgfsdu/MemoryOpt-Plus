@@ -1,7 +1,7 @@
 id=memoryopt_plus
 name=MemoryOpt Plus
-version=V26.05.20
-versionCode=260520
+version=V26.05.23
+versionCode=260523
 author=M1racle
 description=通过 ZRAM 智能管理 + VM 参数锁定 + PSI 压力自适应 + 厂商回收禁用，显著提升多任务后台保活能力与系统流畅度
 minMagisk=25200
