@@ -1,6 +1,3 @@
-use std::io::{Read, Write};
-use std::os::unix::fs::OpenOptionsExt;
-
 use crate::sysfs;
 
 /// Parse algorithm from sysfs format: "lz4 [lzo] zstd" → "lzo"

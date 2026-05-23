@@ -1,20 +1,23 @@
 use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-use std::sync::Mutex;
+use std::sync::OnceLock;
 
-static mut LOG_FILE: Option<std::fs::File> = None;
-static LOG_MUTEX: Mutex<()> = Mutex::new(());
+static LOG_FILE: OnceLock<std::sync::Mutex<Option<std::fs::File>>> = OnceLock::new();
+
+fn get_log() -> &'static std::sync::Mutex<Option<std::fs::File>> {
+    LOG_FILE.get_or_init(|| std::sync::Mutex::new(None))
+}
 
 pub fn init_log(log_path: &std::path::Path) {
     if let Ok(f) = std::fs::OpenOptions::new().create(true).append(true).open(log_path) {
-        unsafe { LOG_FILE = Some(f); }
+        *get_log().lock().unwrap() = Some(f);
     }
 }
 
 pub fn log_to_file(level: &str, msg: &str) {
-    let _guard = LOG_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(ref mut f) = unsafe { LOG_FILE.as_mut() } {
+    let guard = get_log().lock().unwrap();
+    if let Some(ref f) = *guard {
         let ts = chrono_timestamp();
         let _ = writeln!(f, "[{}] - [{}]: {}", ts, level, msg);
         let _ = f.flush();

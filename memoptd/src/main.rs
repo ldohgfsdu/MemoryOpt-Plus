@@ -280,6 +280,5 @@ fn delta_lock(key: &str, expected: i64) {
     }
 }
 
-fn info_msg(msg: &str)  { let _ = std::io::stderr().write_all(format!("[i] memoptd: {}\n", msg).as_bytes()); }
 fn warn_msg(msg: &str)  { let _ = std::io::stderr().write_all(format!("[!] memoptd: {}\n", msg).as_bytes()); }
 fn error_msg(c: &str, m: &str) { let _ = std::io::stderr().write_all(format!("[!] memoptd/{}: {}\n", c, m).as_bytes()); }
