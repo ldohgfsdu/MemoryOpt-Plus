@@ -7,7 +7,9 @@ pub struct Watcher { fd: RawFd, wd: i32 }
 impl Watcher {
     pub fn new(path: &Path) -> Result<Self, Box<dyn std::error::Error>> {
         let fd = unsafe { libc::inotify_init1(libc::IN_NONBLOCK) };
-        if fd < 0 { return Err("inotify_init1 failed".into()); }
+        if fd < 0 {
+            return Err(format!("inotify_init1 failed (errno {})", std::io::Error::last_os_error()).into());
+        }
         let target: &Path = if path.is_dir() { path } else { path.parent().unwrap_or(Path::new("/")) };
         let c_path = CString::new(target.as_os_str().as_encoded_bytes())
             .map_err(|_| "inotify_add_watch: path contains null byte")?;
@@ -15,7 +17,11 @@ impl Watcher {
             libc::inotify_add_watch(fd, c_path.as_ptr(),
                                     libc::IN_MODIFY | libc::IN_CLOSE_WRITE | libc::IN_MOVED_TO)
         };
-        if wd < 0 { unsafe { libc::close(fd); } return Err("inotify_add_watch failed".into()); }
+        if wd < 0 {
+            let err = std::io::Error::last_os_error();
+            unsafe { libc::close(fd); }
+            return Err(format!("inotify_add_watch failed: {}", err).into());
+        }
         Ok(Self { fd, wd })
     }
 

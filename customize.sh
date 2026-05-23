@@ -1,4 +1,4 @@
-﻿#!/system/bin/sh
+#!/system/bin/sh
 # MemoryOpt Plus 安装脚本
 
 SKIPUNZIP=0
@@ -10,7 +10,7 @@ MID=$(grep "^id=" "$MODPATH/module.prop" 2>/dev/null | head -n1 | \
 
 LEGACY_IDS="aegismem_engine MemoryOpt"
 
-ui_print() { echo "$1"; sleep 0.05; }
+ui_print() { echo "$1"; }
 
 # 兼容 KernelSU/APatch
 if ! command -v set_perm_recursive >/dev/null 2>&1; then
@@ -43,6 +43,13 @@ find_mod() {
     echo ""
 }
 
+is_xiaomi() { getprop ro.product.manufacturer 2>/dev/null | grep -qi xiaomi && return 0; return 1; }
+is_oppo() {
+    getprop ro.product.manufacturer 2>/dev/null | grep -qiE "oppo|oneplus" && return 0
+    [ -n "$(getprop persist.sys.oplus.confirm 2>/dev/null)" ] && return 0
+    return 1
+}
+
 CONFLICT_IDS="zram_huanchen HChen_Zram MiniHChen swap_controller scene_swap_controller MemoryOpt_Lite"
 
 remove_conflicts() {
@@ -60,6 +67,11 @@ preserve_config() {
         [ -n "$old_mod_dir" ] && break
     done
     if [ -n "$old_mod_dir" ] && [ -f "$old_mod_dir/swap.ini" ]; then
+        # Stop old daemon before migration
+        if [ -f "$old_mod_dir/daemon.pid" ]; then
+            local oldpid; oldpid=$(cat "$old_mod_dir/daemon.pid" 2>/dev/null)
+            [ -n "$oldpid" ] && [ "$oldpid" != "_pid" ] && kill "$oldpid" 2>/dev/null && sleep 1
+        fi
         generate_optimal_config
         local line key val
         while IFS= read -r line; do
@@ -70,11 +82,19 @@ preserve_config() {
             key=$(echo "$key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
             val=$(echo "$val" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
             [ -z "$key" ] && continue
-            local escaped_key escaped_val
-            escaped_key=$(echo "$key" | sed 's/[\/&\\]/\\&/g')
-            escaped_val=$(echo "$val" | sed 's/[\/&\\]/\\&/g')
-            if grep -qE "^[[:space:]]*${escaped_key}[[:space:]]*=" "$MODPATH/swap.ini" 2>/dev/null; then
-                sed -i "s|^[[:space:]]*${escaped_key}[[:space:]]*=.*|${key}=${escaped_val}|" "$MODPATH/swap.ini" 2>/dev/null
+            # Use awk for safe key=value replacement (avoids sed injection)
+            if grep -qE "^[[:space:]]*$(echo "$key" | sed 's/[.[\*^$()+?{|]/\\&/g')[[:space:]]*=" "$MODPATH/swap.ini" 2>/dev/null; then
+                awk -F= -v key="$key" -v val="$val" '
+                    /^[[:space:]]*#/ {print; next}
+                    {
+                        eq=index($0,"=")
+                        k=substr($0,1,eq-1)
+                        gsub(/^[[:space:]]+|[[:space:]]+$/,"",k)
+                        if(k==key){print key"="val; next}
+                        print
+                    }
+                ' "$MODPATH/swap.ini" > "$MODPATH/swap.ini.tmp" 2>/dev/null && \
+                    mv "$MODPATH/swap.ini.tmp" "$MODPATH/swap.ini" 2>/dev/null
             else
                 echo "${key}=${val}" >> "$MODPATH/swap.ini"
                 ui_print "  追加新配置项: ${key}=${val}"
@@ -99,12 +119,6 @@ get_kernel_major(){ uname -r | cut -d. -f1; }
 supports_zstd()   {
     [ -f /sys/block/zram0/comp_algorithm ] && grep -qw zstd /sys/block/zram0/comp_algorithm 2>/dev/null && return 0
     grep -qw zstd /proc/crypto 2>/dev/null && return 0
-    return 1
-}
-is_xiaomi() { getprop ro.product.manufacturer 2>/dev/null | grep -qi xiaomi && return 0; return 1; }
-is_oppo()   {
-    getprop ro.product.manufacturer 2>/dev/null | grep -qiE "oppo|oneplus" && return 0
-    [ -n "$(getprop persist.sys.oplus.confirm 2>/dev/null)" ] && return 0
     return 1
 }
 

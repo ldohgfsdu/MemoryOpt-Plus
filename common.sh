@@ -7,33 +7,53 @@ _COMMON_SH_LOADED=1
 MAX_LOG_SIZE=$((1024 * 1024))
 _HEARTBEAT_FILE="/data/local/tmp/memoryopt_heartbeat.json"
 
+# 缓存内存总量避免重复 fork
+_MEM_KB=""
+get_mem_kb() {
+    [ -n "$_MEM_KB" ] && echo "$_MEM_KB" && return
+    _MEM_KB=$(grep MemTotal /proc/meminfo | tr -cd '0-9')
+    _MEM_KB="${_MEM_KB:-0}"
+    echo "$_MEM_KB"
+}
+get_mem_mb() { local kb; kb=$(get_mem_kb); echo $(( (kb + 512) / 1024 )); }
+get_mem_gb() { local kb; kb=$(get_mem_kb); echo $(( (kb + 524288) / 1048576 )); }
+
+# ── 安全配置读取（无 eval）──────────────────
 _CONFIG_CACHE_MTIME=0
 
 get_config() {
-    [ -z "$CONFIG" ] && { echo ""; return; }
-    [ ! -f "$CONFIG" ] && { echo ""; return; }
+    [ -z "$CONFIG" ] && return
+    [ ! -f "$CONFIG" ] && return
     local mt
     mt=$(stat -c %Y "$CONFIG" 2>/dev/null)
+    if [ -z "$mt" ] || [ "$mt" = "0" ]; then
+        mt=$(date -r "$CONFIG" +%s 2>/dev/null)
+    fi
     if [ -z "$mt" ] || [ "$mt" = "0" ]; then
         mt=$(ls -l "$CONFIG" 2>/dev/null | awk '{print $6$7$8$5}')
     fi
     if [ "$mt" != "$_CONFIG_CACHE_MTIME" ]; then
         _CONFIG_CACHE_MTIME=$mt
-        eval "$(awk -F= '
-            /^[[:space:]]*#/ { next }
-            {
-                eq = index($0, "=")
-                if (eq == 0) next
-                k = substr($0, 1, eq-1); gsub(/^[[:space:]]+|[[:space:]]+$/, "", k)
-                if (k == "") next
-                v = substr($0, eq+1); sub(/#.*$/, "", v)
-                gsub(/^[[:space:]]+|[[:space:]]+$/, "", v)
-                gsub(/\x27/, "\x27\\\x27\x27", v)
-                printf "_cfg_%s='\''%s'\''\n", k, v
-            }' "$CONFIG" 2>/dev/null
-        )"
+        _CFG_KEYS=""
+        _CFG_VALS=""
+        while IFS='=' read -r _k _v; do
+            case "$_k" in ''|'#'*) continue ;; esac
+            _k=$(echo "$_k" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            [ -z "$_k" ] && continue
+            _v=$(echo "$_v" | sed 's/#.*//;s/^[[:space:]]*//;s/[[:space:]]*$//')
+            _CFG_KEYS="${_CFG_KEYS}${_k}|"
+            _CFG_VALS="${_CFG_VALS}${_v}|"
+        done < "$CONFIG"
     fi
-    eval "echo \${_cfg_${1}:-}"
+    local _search="${1}|"
+    local _i=0
+    local _old_ifs="$IFS"
+    IFS='|'
+    for _k in $_CFG_KEYS; do
+        _i=$((_i + 1))
+        [ "$_k" = "$1" ] && { IFS="$_old_ifs"; echo "$(echo "$_CFG_VALS" | cut -d'|' -f$_i)"; return; }
+    done
+    IFS="$_old_ifs"
 }
 
 get_config_safe() {
@@ -42,22 +62,22 @@ get_config_safe() {
     case "$1" in
         algorithm) case "$val" in lz4|lz4hc|lzo|lzo-rle|zstd|deflate) ;; *) val="lz4" ;; esac ;;
         zram_size) [ -z "$val" ] && val="2.0" ;;
-        swappiness|dirty_background_ratio|dirty_ratio|vfs_cache_pressure|\
-        watermark_scale_factor|compaction_proactiveness|overcommit_memory|\
-        dirty_expire_centisecs|dirty_writeback_centisecs)
-            case "$val" in ''|*[!0-9]*) case "$1" in
-                swappiness) val=130 ;; dirty_background_ratio) val=2 ;; dirty_ratio) val=5 ;;
-                vfs_cache_pressure) val=125 ;; watermark_scale_factor) val=100 ;;
-                compaction_proactiveness) val=20 ;; overcommit_memory) val=1 ;;
-                dirty_expire_centisecs) val=1000 ;; dirty_writeback_centisecs) val=100 ;;
-            esac ;; esac ;;
+        swappiness) case "$val" in ''|*[!0-9]*) val=130 ;; *) [ "$val" -gt 300 ] 2>/dev/null && val=130 ;; esac ;;
+        dirty_background_ratio) case "$val" in ''|*[!0-9]*) val=2 ;; *) [ "$val" -gt 100 ] 2>/dev/null && val=2; [ "$val" -lt 1 ] 2>/dev/null && val=1 ;; esac ;;
+        dirty_ratio) case "$val" in ''|*[!0-9]*) val=5 ;; *) [ "$val" -gt 100 ] 2>/dev/null && val=5; [ "$val" -lt 2 ] 2>/dev/null && val=2 ;; esac ;;
+        vfs_cache_pressure) case "$val" in ''|*[!0-9]*) val=125 ;; *) [ "$val" -gt 1000 ] 2>/dev/null && val=125 ;; esac ;;
+        watermark_scale_factor) case "$val" in ''|*[!0-9]*) val=100 ;; *) [ "$val" -gt 3000 ] 2>/dev/null && val=100 ;; esac ;;
+        compaction_proactiveness) case "$val" in ''|*[!0-9]*) val=20 ;; *) [ "$val" -gt 100 ] 2>/dev/null && val=20 ;; esac ;;
+        overcommit_memory) case "$val" in ''|*[!0-9]*) val=1 ;; *) [ "$val" -gt 2 ] 2>/dev/null && val=1 ;; esac ;;
+        dirty_expire_centisecs) case "$val" in ''|*[!0-9]*) val=1000 ;; *) [ "$val" -gt 30000 ] 2>/dev/null && val=1000 ;; esac ;;
+        dirty_writeback_centisecs) case "$val" in ''|*[!0-9]*) val=100 ;; *) [ "$val" -gt 30000 ] 2>/dev/null && val=100 ;; esac ;;
         lmk_low_percent|lmk_medium_percent|lmk_critical_percent)
             case "$val" in ''|*[!0-9]*) val= ;; esac
             [ -n "$val" ] && { [ "$val" -lt 1 ] 2>/dev/null && val=1; [ "$val" -gt 15 ] 2>/dev/null && val=15; }
             case "$1" in lmk_low_percent) : ${val:=6} ;; lmk_medium_percent) : ${val:=4} ;; lmk_critical_percent) : ${val:=2} ;; esac ;;
         page_cluster|extra_free_kbytes|max_streams) case "$val" in auto|''|*[!0-9]*) val="auto" ;; esac ;;
         watch_interval) case "$val" in ''|*[!0-9]*) val=5 ;; esac ;;
-        zram_priority) case "$val" in ''|*[!0-9]*) val=100 ;; *) [ "$val" -lt 0 ] 2>/dev/null && val=0; [ "$val" -gt 32767 ] 2>/dev/null && val=32767 ;; esac ;;
+        zram_priority) case "$val" in ''|*[!0-9]*) val=100 ;; *) [ "$val" -gt 32767 ] 2>/dev/null && val=32767 ;; esac ;;
         early_start|enable|disable_vendor_reclaim|bind_lmkd|log_to_logcat) case "$val" in true|false) ;; *) val="false" ;; esac ;;
         log_level) case "$val" in quiet|normal|verbose) ;; *) val="normal" ;; esac ;;
     esac
@@ -69,17 +89,19 @@ get_config_num() {
     case "$val" in ''|*[!0-9]*) echo "$2" ;; *) echo "$val" ;; esac
 }
 
-get_mem_kb() { local _mk; _mk=$(grep MemTotal /proc/meminfo | tr -cd '0-9'); echo "${_mk:-0}"; }
-get_mem_mb() { local kb; kb=$(get_mem_kb); echo $(( (kb + 512) / 1024 )); }
-get_mem_gb() { local kb; kb=$(get_mem_kb); echo $(( (kb + 524288) / 1048576 )); }
-
 detect_oem() {
     if [ -f "$MODDIR/.oem_type" ]; then cat "$MODDIR/.oem_type" 2>/dev/null; return; fi
     local oem="generic"
-    getprop ro.product.manufacturer 2>/dev/null | grep -qiE "xiaomi" && oem="xiaomi"
-    getprop ro.product.manufacturer 2>/dev/null | grep -qiE "oppo|oneplus" && oem="oppo"
-    [ -n "$(getprop persist.sys.oplus.confirm 2>/dev/null)" ] && oem="oppo"
+    is_xiaomi && oem="xiaomi"
+    is_oppo   && oem="oppo"
     echo "$oem"
+}
+
+is_xiaomi() { getprop ro.product.manufacturer 2>/dev/null | grep -qi xiaomi && return 0; return 1; }
+is_oppo() {
+    getprop ro.product.manufacturer 2>/dev/null | grep -qiE "oppo|oneplus" && return 0
+    [ -n "$(getprop persist.sys.oplus.confirm 2>/dev/null)" ] && return 0
+    return 1
 }
 
 _HAS_RESETPROP=false
@@ -132,7 +154,7 @@ _raw_write() {
 
 set_value() {
     local val="$1" file="$2" quiet="$3"
-    val=$(echo "$val" | sed 's/#.*//;s/^[[:space:]]*//;s/[[:space:]]*$//')
+    val=$(echo "$val" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
     if [ ! -f "$file" ]; then
         _LOG_COUNT_SKIP=$((_LOG_COUNT_SKIP + 1))
         [ "$quiet" != "quiet" ] && _log_msg "!" "$file not found"
@@ -154,7 +176,8 @@ _stop_pid() {
     kill "$pid" 2>/dev/null
     local i=0
     while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 10 ]; do
-        sleep 0.3; i=$((i + 1))
+        command -v usleep >/dev/null 2>&1 && usleep 300000 || sleep 1
+        i=$((i + 1))
     done
     kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null
 }
@@ -216,7 +239,7 @@ log_section() { _log_msg "i" "────────── $1 ─────�
 
 log_write() {
     local file="$1" expected="$2" quiet="$3"
-    local actual; actual=$(head -n1 "$file" 2>/dev/null | tr -d '\n\r')
+    local actual; actual=$(cat "$file" 2>/dev/null | head -n1)
     if [ "$actual" = "$expected" ]; then
         _LOG_COUNT_OK=$((_LOG_COUNT_OK + 1))
         [ "$quiet" != "quiet" ] && _log_msg "i" "写入: $file → $expected"
@@ -252,7 +275,8 @@ log_change() {
 log_heartbeat() {
     _LOG_HEARTBEAT=$((_LOG_HEARTBEAT + 1))
     _log_msg "d" "心跳 #${_LOG_HEARTBEAT} · swap=$1 · zram=$2 · vm=$3"
-    echo "$(date +%s)" > "$_HEARTBEAT_FILE" 2>/dev/null
+    printf '{"ts":%s,"seq":%s,"swap":"%s","zram":"%s","vm":"%s"}\n' \
+        "$(date +%s)" "$_LOG_HEARTBEAT" "$1" "$2" "$3" > "$_HEARTBEAT_FILE" 2>/dev/null
 }
 
 log_summary() {
@@ -333,7 +357,8 @@ calc_lmk_minfree() {
     local cri2=$(( cri * 8 / 10 ))
     local cur_vals num_slots=6
     cur_vals=$(cat "$lmk_node" 2>/dev/null | tr -d '[:space:]')
-    [ -n "$cur_vals" ] && num_slots=$(echo "$cur_vals" | awk -F, '{print NF}') && [ "$num_slots" -lt 1 ] && num_slots=6
+    [ -n "$cur_vals" ] && num_slots=$(echo "$cur_vals" | awk -F, '{print NF}')
+    [ "$num_slots" -lt 1 ] || [ "$num_slots" -gt 20 ] 2>/dev/null && num_slots=6
     local template="cri2 cri med2 med low2 low" result="" i=0
     for token in $template; do
         [ $i -ge $num_slots ] && break

@@ -26,7 +26,11 @@ mkdir -p _pack/bin _pack/META-INF/com/google/android
 
 # 复制所有模块文件
 for f in module.prop customize.sh service.sh post-fs-data.sh uninstall.sh common.sh memory.sh swap.ini README.md; do
-    [ -f "$f" ] && cp "$f" _pack/
+    if [ -f "$f" ]; then
+        cp "$f" _pack/ || { echo "ERROR: failed to copy $f"; exit 1; }
+    else
+        echo "ERROR: required file $f not found"; exit 1
+    fi
 done
 
 # 复制二进制

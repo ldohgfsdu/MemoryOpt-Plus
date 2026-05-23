@@ -1,4 +1,4 @@
-﻿#!/system/bin/sh
+#!/system/bin/sh
 # MemoryOpt Plus 卸载脚本
 
 MODDIR=${0%/*}
@@ -14,9 +14,9 @@ fi
 
 . "$MODDIR/common.sh"
 
-# 终止 memoptd
+# 终止 memoptd 并等待退出
 for pid in $(pgrep -x memoptd 2>/dev/null); do
-    kill "$pid" 2>/dev/null
+    _stop_pid "$pid"
 done
 
 # 终止守护进程
@@ -38,7 +38,9 @@ for pid in $(pgrep -f "sh.*${MODDIR}/service.sh" 2>/dev/null) \
     [ "$pid" = "$$" ] && continue
     [ -n "$pid" ] && _stop_pid "$pid"
 done
-sleep 0.5
+sleep 1
+# Verify no lingering processes
+pgrep -f "${MODDIR}" >/dev/null 2>&1 && sleep 2
 
 # 恢复原生 zram0
 if [ -d "$ZRAM_BACKUP" ]; then
@@ -115,7 +117,7 @@ _prop_del persist.sys.oplus.process_manager.bg_limit
 # 清理所有残留
 rm -rf "$PERSIST_BACKUP" 2>/dev/null
 rm -f /data/local/tmp/memoryopt_heartbeat.json 2>/dev/null
-rm -f "$MODDIR/disable" "$MODDIR/daemon.pid" "$MODDIR/zram_dev" \
+rm -f "$MODDIR/disable" "$MODDIR/daemon.pid" "$MODDIR/daemon.pid.lock" "$MODDIR/zram_dev" \
       "$MODDIR/.current_alg" "$MODDIR/.rebuild_lock" 2>/dev/null
 
 echo "MemoryOpt Plus 卸载完成"

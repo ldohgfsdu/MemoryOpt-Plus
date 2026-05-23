@@ -4,16 +4,13 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 
 pub fn write_str(path: &str, value: &str) -> bool {
-    let p = Path::new(path);
-    if !p.exists() { return false; }
     match open_write(path) {
         Ok(mut f) => { let _ = f.write_all(value.as_bytes()); true }
         Err(_) => {
             let orig = std::fs::metadata(path).map(|m| m.permissions()).ok();
-            let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o666));
+            let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o644));
             let ok = open_write(path).map(|mut f| f.write_all(value.as_bytes()).is_ok()).unwrap_or(false);
             if let Some(orig) = orig { let _ = std::fs::set_permissions(path, orig); }
-            else { let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o644)); }
             ok
         }
     }

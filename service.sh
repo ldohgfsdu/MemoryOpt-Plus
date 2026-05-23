@@ -1,4 +1,4 @@
-﻿#!/system/bin/sh
+#!/system/bin/sh
 # MemoryOpt Plus 守护进程
 
 MODDIR=${0%/*}
@@ -7,14 +7,23 @@ DISABLE="$MODDIR/disable"
 PIDFILE="$MODDIR/daemon.pid"
 LOG="$MODDIR/log.txt"
 REBUILD_LOCK="$MODDIR/.rebuild_lock"
+PIDLOCK="$PIDFILE.lock"
 MEMOPTD="$MODDIR/bin/memoptd"
 
 . "$MODDIR/common.sh"
 . "$MODDIR/memory.sh"
 
-trap 'rm -f "$PIDFILE" "$REBUILD_LOCK"' EXIT
+trap 'rm -f "$PIDFILE" "$PIDLOCK" "$REBUILD_LOCK"' EXIT
 _FORCE_RELOAD=0
 trap '_FORCE_RELOAD=1' HUP
+
+# 单实例（使用文件锁）
+exec 9>"$PIDLOCK"
+if ! flock -n 9 2>/dev/null; then
+    log_info "检测到另一个实例正在运行，退出"
+    exit 0
+fi
+echo "$$" >&9
 
 _log_init; _log_rotate
 log_info "守护进程已启动 (PID $$)"
@@ -22,6 +31,7 @@ log_info "守护进程已启动 (PID $$)"
 # ── 工具 ──────────────────────────────────
 get_mtime() {
     local mt; mt=$(stat -c %Y "$1" 2>/dev/null)
+    [ -z "$mt" ] && mt=$(date -r "$1" +%s 2>/dev/null)
     [ -z "$mt" ] && mt=$(ls -l "$1" 2>/dev/null | awk '{print $6$7$8$5}')
     echo "$mt"
 }
@@ -34,7 +44,7 @@ wait_boot() {
         [ "$waited" -ge 600 ] && { log_warn "等待超时 (${waited}s)"; break; }
     done
     waited=0
-    while [ ! -d "/sdcard/Android" ]; do
+    while [ ! -d "/sdcard/Android" ] && [ ! -d "/data/media/0/Android" ]; do
         sleep 1; waited=$((waited + 1))
         [ "$waited" -ge 120 ] && { log_warn "/sdcard/Android 未就绪"; break; }
     done
@@ -49,34 +59,26 @@ wait_vm_ready() {
     log_info "VM 子系统已就绪"
 }
 
-# 单实例
-if [ -f "$PIDFILE" ]; then
-    oldpid=$(cat "$PIDFILE" 2>/dev/null)
-    if [ -n "$oldpid" ] && [ "$oldpid" != "_pid" ]; then
-        log_info "清理旧实例 (PID $oldpid)"
-        _stop_pid "$oldpid"
-    elif [ "$oldpid" = "_pid" ]; then
-        log_info "检测到遗留 _pid 标记，使用 pgrep 清理"
-        for pid in $(pgrep -f "sh.*${MODDIR}/service.sh" 2>/dev/null); do
-            _stop_pid "$pid"
-        done
-    fi
-    sleep 0.3
-fi
-echo "$$" > "$PIDFILE"
-log_info "PID 文件已写入: $$"
-
-# ── 配置缓存 ──────────────────────────────
-_cfg_num()  { local v; eval "v=\${_cfg_${1}:-}"; case "$v" in ''|*[!0-9]*) echo "${2:-0}" ;; *) echo "$v" ;; esac; }
-_cfg_bool() { local v; eval "v=\${_cfg_${1}:-}"; case "$v" in true|false) echo "$v" ;; *) echo "false" ;; esac; }
-_cfg_str()  { local v; eval "v=\${_cfg_${1}:-}"; echo "${v:-${2}}"; }
+# ── 安全配置访问（无 eval）─────────────
+_cfg_num()  {
+    local v; v=$(get_config "$1")
+    case "$v" in ''|*[!0-9]*) echo "${2:-0}" ;; *) echo "$v" ;; esac
+}
+_cfg_bool() {
+    local v; v=$(get_config "$1")
+    case "$v" in true|false) echo "$v" ;; *) echo "false" ;; esac
+}
+_cfg_str()  {
+    local v; v=$(get_config "$1")
+    echo "${v:-${2}}"
+}
 
 _lock_swappiness=""; _lock_watermark=""; _lock_dbr=""; _lock_dr=""; _lock_vfs_cache=""
 _lock_extra_free=""; _lock_compaction=""; _lock_overcommit=""; _lock_dirty_expire=""
 _lock_dirty_writeback=""; _lock_page_cluster=""; _lock_page_cluster_mode=""
 _lock_enable=""; _lock_mtime=0; _lock_zram_priority=""
-_lock_stat_interval=3; _lock_oom_kill_alloc=0; _lock_oom_dump=0
-_lock_compact_unevict=1; _lock_panic_on_oom=0
+_lock_stat_interval=""; _lock_oom_kill_alloc=""; _lock_oom_dump=""
+_lock_compact_unevict=""; _lock_panic_on_oom=""
 _lock_lmk_minfree=""
 _cached_swap_total=0; _cached_efk=""
 _reloads=0; _changes=0
@@ -124,6 +126,11 @@ reload_config_cache() {
         _lock_lmk_minfree=$(calc_lmk_minfree)
         _lock_enable=$(_cfg_bool enable)
         _lock_zram_priority=$(_cfg_num zram_priority 100)
+        _lock_stat_interval=$(_cfg_num stat_interval 3)
+        _lock_oom_kill_alloc=$(_cfg_num oom_kill_allocating_task 0)
+        _lock_oom_dump=$(_cfg_num oom_dump_tasks 0)
+        _lock_compact_unevict=$(_cfg_num compact_unevictable_allowed 1)
+        _lock_panic_on_oom=$(_cfg_num panic_on_oom 0)
         _lock_mtime=$mt
 
         [ -n "$_o_zp" ] && [ "$_o_zp" != "$_lock_zram_priority" ] && \
@@ -164,7 +171,11 @@ main() {
 
     if [ -x "$MEMOPTD" ]; then
         log_info "检测到 memoptd (Rust 引擎)，直接移交 VM 锁定"
-        exec "$MEMOPTD" "$CONFIG"
+        "$MEMOPTD" "$CONFIG" &
+        local memoptd_pid=$!
+        trap "kill $memoptd_pid 2>/dev/null; rm -f '$PIDFILE' '$PIDLOCK' '$REBUILD_LOCK'" EXIT
+        wait $memoptd_pid
+        exit $?
     fi
 
     log_info "使用 shell 引擎 (回退模式)"

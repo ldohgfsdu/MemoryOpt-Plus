@@ -63,7 +63,10 @@ impl Daemon {
         let mut sigset = SigSet::empty();
         sigset.add(Signal::SIGHUP);
         sigset.add(Signal::SIGUSR1);
-        sigset.thread_block().ok();
+        if let Err(e) = sigset.thread_block() {
+            error_msg("sigset", &format!("failed to block signals: {}", e));
+            process::exit(1);
+        }
 
         let sfd = match SignalFd::with_flags(&sigset, nix::sys::signalfd::SfdFlags::SFD_NONBLOCK) {
             Ok(fd) => fd,
@@ -75,13 +78,16 @@ impl Daemon {
             Ok(fd) => fd,
             Err(e) => { error_msg("timerfd", &e.to_string()); process::exit(1); }
         };
-        tfd.set(
+        if let Err(e) = tfd.set(
             Expiration::IntervalDelayed(
                 nix::sys::time::TimeSpec::from(interval),
                 nix::sys::time::TimeSpec::from(interval),
             ),
             TimerSetTimeFlags::empty(),
-        ).ok();
+        ) {
+            error_msg("timerfd.set", &format!("failed to arm timer: {}", e));
+            process::exit(1);
+        }
 
         // Extract raw fds to avoid borrow conflicts with &mut self
         let ino_fd = self.inotify.as_raw_fd();
@@ -98,7 +104,14 @@ impl Daemon {
                 PollFd::new(unsafe { BorrowedFd::borrow_raw(tfd_fd) }, PollFlags::POLLIN),
             ];
 
-            let _ = poll(&mut pfds, PollTimeout::from(60000u16));
+            match poll(&mut pfds, PollTimeout::NONE) {
+                Ok(_) => {}
+                Err(nix::errno::Errno::EINTR) => continue,
+                Err(e) => {
+                    warn_msg(&format!("poll error: {}", e));
+                    continue;
+                }
+            }
 
             if pfds[0].revents().map_or(false, |r| r.contains(PollFlags::POLLIN)) {
                 self.inotify.drain();
@@ -147,16 +160,21 @@ impl Daemon {
             sysfs::write_str("/sys/kernel/mm/lru_gen/enabled", "0x0003");
             sysfs::write_str("/sys/kernel/mm/lru_gen/min_ttl_ms", "10000");
         }
-        // Disable vendor-specific reclaim mechanisms
-        sysfs::write_str("/sys/module/process_reclaim/parameters/enable_process_reclaim", "0");
-        sysfs::write_str("/sys/kernel/mi_reclaim/enable", "0");
-        sysfs::write_str("/sys/kernel/mi_reclaim/greclaim_enable", "0");
-        sysfs::write_str("/sys/kernel/low_free/low_free_enable", "0");
-        sysfs::write_str("/sys/module/memplus_core/parameters/memory_plus_enabled", "0");
-        sysfs::write_str("/proc/sys/vm/memory_plus", "0");
-        sysfs::write_str("/sys/kernel/mi_thermald/mi_thermald_enable", "0");
-        sysfs::write_str("/sys/module/perfmgr/parameters/perfmgr_enable", "0");
-        sysfs::write_str("/sys/module/opchain/parameters/opchain_enable", "0");
+        // Disable vendor-specific reclaim mechanisms (only at startup)
+        let vendor_paths = [
+            "/sys/module/process_reclaim/parameters/enable_process_reclaim",
+            "/sys/kernel/mi_reclaim/enable",
+            "/sys/kernel/mi_reclaim/greclaim_enable",
+            "/sys/kernel/low_free/low_free_enable",
+            "/sys/module/memplus_core/parameters/memory_plus_enabled",
+            "/proc/sys/vm/memory_plus",
+            "/sys/kernel/mi_thermald/mi_thermald_enable",
+            "/sys/module/perfmgr/parameters/perfmgr_enable",
+            "/sys/module/opchain/parameters/opchain_enable",
+        ];
+        for path in &vendor_paths {
+            sysfs::write_str(path, "0");
+        }
         // Disable transparent hugepage compaction and scheduler autogroup
         sysfs::write_str("/sys/kernel/mm/transparent_hugepage/khugepaged/defrag", "0");
         sysfs::write_str("/proc/sys/kernel/sched_autogroup_enabled", "0");
@@ -188,9 +206,12 @@ impl Daemon {
 
         self.boot_cycles += 1;
         let psi_data = psi::read_memory_pressure();
+
+        // Swappiness ramp: linearly interpolate from 50% of target to target over 24 cycles
         let effective_swappiness = if self.boot_cycles < 24 {
-            let ramp = self.locks.swappiness.min(80)
-                + (self.locks.swappiness.saturating_sub(80)) * self.boot_cycles as i64 / 24;
+            let target = self.locks.swappiness;
+            let min_start = target / 2;
+            let ramp = min_start + (target - min_start) * self.boot_cycles as i64 / 24;
             if psi_data.some_avg10 > 15.0 { ramp / 2 } else { ramp }
         } else if psi_data.some_avg10 > 10.0 {
             (self.locks.swappiness / 2).min(80)
@@ -205,8 +226,9 @@ impl Daemon {
         match config::Config::from_file(&self.config_path) {
             Ok(cfg) => {
                 self.locks = config::Locks::from_config(&cfg);
+                self.boot_cycles = 0;
                 self.apply_all();
-                info_msg("config reloaded");
+                info_msg("config reloaded (boot_cycles reset)");
             }
             Err(e) => warn_msg(&format!("config reload failed: {}", e)),
         }

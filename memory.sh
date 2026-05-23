@@ -71,7 +71,10 @@ init_zram() {
             ''|*[!0-9]*) log_warn "hot_add 无效 id: $id" ;;
             *)
                 local dev="/dev/block/zram${id}" w=0
-                while [ ! -b "$dev" ] && [ "$w" -lt 30 ]; do sleep 0.1; w=$((w+1)); done
+                while [ ! -b "$dev" ] && [ "$w" -lt 30 ]; do
+                    command -v usleep >/dev/null 2>&1 && usleep 100000 || sleep 1
+                    w=$((w+1))
+                done
                 if [ -b "$dev" ]; then log_info "hot_add 创建 zram${id}"; echo "zram${id}"; return 0; fi
                 log_warn "hot_add 设备未出现"
                 ;;
@@ -134,10 +137,11 @@ parse_zram_size() {
 
 _wait_zram_reset() {
     local zsys="$1" waited=0
-    while [ "$waited" -lt 30 ]; do
+    while [ "$waited" -lt 100 ]; do
         local sz; sz=$(cat "$zsys/disksize" 2>/dev/null | tr -cd '0-9')
         if [ -z "$sz" ] || [ "$sz" = "0" ]; then return 0; fi
-        sleep 0.05; waited=$((waited + 1))
+        command -v usleep >/dev/null 2>&1 && usleep 50000 || sleep 1
+        waited=$((waited + 1))
     done
     return 1
 }
@@ -210,7 +214,9 @@ config_zram() {
 
     if [ "$swap_ok" = "1" ]; then
         _LOG_COUNT_OK=$((_LOG_COUNT_OK + 1))
-        echo "$dev" > "$MODDIR/zram_dev"
+        printf '%s' "$dev" > "$MODDIR/zram_dev.tmp" 2>/dev/null && \
+            mv "$MODDIR/zram_dev.tmp" "$MODDIR/zram_dev" 2>/dev/null || \
+            echo "$dev" > "$MODDIR/zram_dev"
         local pri=""
         [ "$SWAPON_HAS_P" = true ] && pri="优先级 ${priority}" || pri="无优先级"
         log_info "ZRAM 已启用: ${algo} · ${disk} · ${dev} · ${pri}"
@@ -262,7 +268,7 @@ swappiness_max() {
     cur=$(cat /proc/sys/vm/swappiness 2>/dev/null)
     echo 32767 > /proc/sys/vm/swappiness 2>/dev/null
     max=$(cat /proc/sys/vm/swappiness 2>/dev/null)
-    [ -n "$cur" ] && echo "$cur" > /proc/sys/vm/swappiness 2>/dev/null || echo 60 > /proc/sys/vm/swappiness 2>/dev/null
+    [ -n "$cur" ] && printf '%s' "$cur" > /proc/sys/vm/swappiness 2>/dev/null || echo 60 > /proc/sys/vm/swappiness 2>/dev/null
     _SWAPPINESS_MAX_CACHED="${max:-200}"
     echo "$_SWAPPINESS_MAX_CACHED"
 }
@@ -276,6 +282,8 @@ config_vm() {
 
     local dbr=$(get_config_safe dirty_background_ratio); [ -z "$dbr" ] && dbr=2
     local dr=$(get_config_safe dirty_ratio); [ -z "$dr" ] && dr=5
+    [ "$dbr" -lt 1 ] 2>/dev/null && dbr=1
+    [ "$dr" -lt 2 ] 2>/dev/null && dr=2
     [ "$dbr" -ge "$dr" ] 2>/dev/null && { dbr=$((dr/2)); [ "$dbr" -lt 1 ] && dbr=1; }
     set_value "$dbr" /proc/sys/vm/dirty_background_ratio quiet
     set_value "$dr"  /proc/sys/vm/dirty_ratio quiet
@@ -313,6 +321,10 @@ config_vm() {
         local efk; efk=$(get_config_safe extra_free_kbytes)
         [ "$efk" != "auto" ] && set_value "$efk" /proc/sys/vm/extra_free_kbytes quiet
     fi
+
+    if [ "$_LOG_COUNT_FAIL" -gt 0 ] && [ "$_LOG_COUNT_OK" -eq 0 ]; then
+        log_warn "所有 VM 参数写入失败，可能 /proc/sys/vm 为只读"
+    fi
 }
 
 config_lmk() {
@@ -320,8 +332,10 @@ config_lmk() {
     local minfree_str; minfree_str=$(calc_lmk_minfree)
     local lmk_node="/sys/module/lowmemorykiller/parameters/minfree"
     if [ -n "$minfree_str" ] && [ -f "$lmk_node" ]; then
-        set_value "$minfree_str" "$lmk_node" quiet
-        return 0
+        if set_value "$minfree_str" "$lmk_node" quiet; then
+            return 0
+        fi
+        log_warn "minfree 节点写入失败，尝试 resetprop 回退"
     fi
     local mem_mb; mem_mb=$(get_mem_mb)
     local l=$(get_config_safe lmk_low_percent);      : ${l:=6}
@@ -435,11 +449,11 @@ lock_params() {
 		[ -n "$_lock_dirty_writeback" ] && _raw_write "$_lock_dirty_writeback" /proc/sys/vm/dirty_writeback_centisecs
 		[ -n "$_lock_page_cluster" ] && _raw_write "$_lock_page_cluster" /proc/sys/vm/page-cluster
 		[ -n "$_lock_compaction" ] && _raw_write "$_lock_compaction" /proc/sys/vm/compaction_proactiveness
-		[ "$_lock_stat_interval" != "" ] && _raw_write "$_lock_stat_interval" /proc/sys/vm/stat_interval
-		[ "$_lock_oom_kill_alloc" != "" ] && _raw_write "$_lock_oom_kill_alloc" /proc/sys/vm/oom_kill_allocating_task
-		[ "$_lock_oom_dump" != "" ] && _raw_write "$_lock_oom_dump" /proc/sys/vm/oom_dump_tasks
-		[ "$_lock_compact_unevict" != "" ] && _raw_write "$_lock_compact_unevict" /proc/sys/vm/compact_unevictable_allowed
-		[ "$_lock_panic_on_oom" != "" ] && _raw_write "$_lock_panic_on_oom" /proc/sys/vm/panic_on_oom
+		[ -n "$_lock_stat_interval" ] && _raw_write "$_lock_stat_interval" /proc/sys/vm/stat_interval
+		[ -n "$_lock_oom_kill_alloc" ] && _raw_write "$_lock_oom_kill_alloc" /proc/sys/vm/oom_kill_allocating_task
+		[ -n "$_lock_oom_dump" ] && _raw_write "$_lock_oom_dump" /proc/sys/vm/oom_dump_tasks
+		[ -n "$_lock_compact_unevict" ] && _raw_write "$_lock_compact_unevict" /proc/sys/vm/compact_unevictable_allowed
+		[ -n "$_lock_panic_on_oom" ] && _raw_write "$_lock_panic_on_oom" /proc/sys/vm/panic_on_oom
 
 		if [ -n "$_lock_extra_free" ] && [ "$_lock_extra_free" != "auto" ] && [ -f /proc/sys/vm/extra_free_kbytes ]; then
 			_raw_write "$_lock_extra_free" /proc/sys/vm/extra_free_kbytes

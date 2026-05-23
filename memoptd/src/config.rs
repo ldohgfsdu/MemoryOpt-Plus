@@ -48,7 +48,13 @@ impl Locks {
         let sw = cfg.get_num("swappiness", 130);
         let dbr = cfg.get_num("dirty_background_ratio", 2);
         let dr = cfg.get_num("dirty_ratio", 5);
-        let (dbr, dr) = if dbr >= dr { ((dr / 2).max(1), dr) } else { (dbr, dr) };
+        // Ensure dbr < dr: dbr must be at most dr - 1, with a minimum of 1
+        let (dbr, dr) = if dbr >= dr {
+            let dr = dr.max(2);
+            ((dr / 2).max(1).min(dr - 1), dr)
+        } else {
+            (dbr, dr)
+        };
         let page_cluster = match cfg.get("page_cluster") {
             Some("auto") | None => {
                 let alg = cfg.get("algorithm").unwrap_or("lz4");
