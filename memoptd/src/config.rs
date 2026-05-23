@@ -19,6 +19,7 @@ pub struct Locks {
     pub dirty_writeback: i64,
     pub watch_interval: u64,
     pub _enable: bool,
+    pub enable_mglru: bool,
 }
 
 impl Config {
@@ -45,9 +46,9 @@ impl Config {
 
 impl Locks {
     pub fn from_config(cfg: &Config) -> Self {
-        let sw = cfg.get_num("swappiness", 130);
-        let dbr = cfg.get_num("dirty_background_ratio", 2);
-        let dr = cfg.get_num("dirty_ratio", 5);
+        let sw = cfg.get_num("swappiness", 100);
+        let dbr = cfg.get_num("dirty_background_ratio", 5);
+        let dr = cfg.get_num("dirty_ratio", 10);
         // Ensure dbr < dr: dbr must be at most dr - 1, with a minimum of 1
         let (dbr, dr) = if dbr >= dr {
             let dr = dr.max(2);
@@ -66,15 +67,16 @@ impl Locks {
             swappiness: sw.min(200).max(0),
             dirty_bg: dbr, dirty: dr,
             vfs_cache: cfg.get_num("vfs_cache_pressure", 125),
-            watermark: cfg.get_num("watermark_scale_factor", 100),
+            watermark: cfg.get_num("watermark_scale_factor", 50),
             compaction: cfg.get_num("compaction_proactiveness", 20),
             overcommit: cfg.get_num("overcommit_memory", 1),
             page_cluster,
             extra_free: cfg.get("extra_free_kbytes").unwrap_or("auto").to_string(),
             dirty_expire: cfg.get_num("dirty_expire_centisecs", 1000),
-            dirty_writeback: cfg.get_num("dirty_writeback_centisecs", 100),
+            dirty_writeback: cfg.get_num("dirty_writeback_centisecs", 500),
             watch_interval: cfg.get_num("watch_interval", 5).max(1) as u64,
             _enable: cfg.get_true("enable"),
+            enable_mglru: cfg.get_true("enable_mglru"),
         }
     }
 }

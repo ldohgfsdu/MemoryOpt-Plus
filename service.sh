@@ -17,13 +17,29 @@ trap 'rm -f "$PIDFILE" "$PIDLOCK" "$REBUILD_LOCK"' EXIT
 _FORCE_RELOAD=0
 trap '_FORCE_RELOAD=1' HUP
 
-# 单实例（使用文件锁）
-exec 9>"$PIDLOCK"
-if ! flock -n 9 2>/dev/null; then
-    log_info "检测到另一个实例正在运行，退出"
-    exit 0
+# ── 单实例（flock 优先，PID 文件回退）─────
+_HAS_FLOCK=false
+command -v flock >/dev/null 2>&1 && _HAS_FLOCK=true
+
+if [ "$_HAS_FLOCK" = "true" ]; then
+    exec 9>"$PIDLOCK"
+    if ! flock -n 9 2>/dev/null; then
+        log_info "检测到另一个实例正在运行，退出"
+        exit 0
+    fi
+    echo "$$" >&9
+else
+    if [ -f "$PIDFILE" ]; then
+        oldpid=$(cat "$PIDFILE" 2>/dev/null)
+        if [ -n "$oldpid" ] && [ "$oldpid" != "_pid" ]; then
+            kill -0 "$oldpid" 2>/dev/null && {
+                log_info "检测到另一个实例正在运行 (PID $oldpid)，退出"
+                exit 0
+            }
+        fi
+    fi
+    echo "$$" > "$PIDFILE"
 fi
-echo "$$" >&9
 
 _log_init; _log_rotate
 log_info "守护进程已启动 (PID $$)"
@@ -59,20 +75,7 @@ wait_vm_ready() {
     log_info "VM 子系统已就绪"
 }
 
-# ── 安全配置访问（无 eval）─────────────
-_cfg_num()  {
-    local v; v=$(get_config "$1")
-    case "$v" in ''|*[!0-9]*) echo "${2:-0}" ;; *) echo "$v" ;; esac
-}
-_cfg_bool() {
-    local v; v=$(get_config "$1")
-    case "$v" in true|false) echo "$v" ;; *) echo "false" ;; esac
-}
-_cfg_str()  {
-    local v; v=$(get_config "$1")
-    echo "${v:-${2}}"
-}
-
+# ── 配置缓存 ──────────────────────────────
 _lock_swappiness=""; _lock_watermark=""; _lock_dbr=""; _lock_dr=""; _lock_vfs_cache=""
 _lock_extra_free=""; _lock_compaction=""; _lock_overcommit=""; _lock_dirty_expire=""
 _lock_dirty_writeback=""; _lock_page_cluster=""; _lock_page_cluster_mode=""
@@ -82,6 +85,7 @@ _lock_compact_unevict=""; _lock_panic_on_oom=""
 _lock_lmk_minfree=""
 _cached_swap_total=0; _cached_efk=""
 _reloads=0; _changes=0
+_lock_mglru=""
 
 _NEED_ZRAM_REBUILD=0
 
@@ -102,6 +106,7 @@ reload_config_cache() {
     local mt; mt=$(get_mtime "$CONFIG")
     if [ "$mt" != "$_lock_mtime" ] || [ "${_FORCE_RELOAD:-0}" = "1" ]; then
         _FORCE_RELOAD=0; _reloads=$((_reloads + 1))
+        # 预读配置以填充缓存
         get_config swappiness >/dev/null
 
         local _o_en="$_lock_enable" _o_sw="$_lock_swappiness" _o_wm="$_lock_watermark"
@@ -111,16 +116,16 @@ reload_config_cache() {
         local _o_pc="$_lock_page_cluster_mode" _o_lmk="$_lock_lmk_minfree"
         local _o_zp="$_lock_zram_priority"
 
-        _lock_swappiness=$(_cfg_num swappiness 130)
-        _lock_watermark=$(_cfg_num watermark_scale_factor 100)
-        _lock_dbr=$(_cfg_num dirty_background_ratio 2)
-        _lock_dr=$(_cfg_num dirty_ratio 5)
+        _lock_swappiness=$(_cfg_num swappiness 100)
+        _lock_watermark=$(_cfg_num watermark_scale_factor 50)
+        _lock_dbr=$(_cfg_num dirty_background_ratio 5)
+        _lock_dr=$(_cfg_num dirty_ratio 10)
         _lock_vfs_cache=$(_cfg_num vfs_cache_pressure 125)
         _lock_extra_free=$(_cfg_str extra_free_kbytes "auto")
         _lock_compaction=$(_cfg_num compaction_proactiveness 20)
         _lock_overcommit=$(_cfg_num overcommit_memory 1)
         _lock_dirty_expire=$(_cfg_num dirty_expire_centisecs 1000)
-        _lock_dirty_writeback=$(_cfg_num dirty_writeback_centisecs 100)
+        _lock_dirty_writeback=$(_cfg_num dirty_writeback_centisecs 500)
         _lock_page_cluster_mode=$(_cfg_str page_cluster "auto")
         _lock_page_cluster=$(_resolve_page_cluster "$_lock_page_cluster_mode")
         _lock_lmk_minfree=$(calc_lmk_minfree)
@@ -131,6 +136,7 @@ reload_config_cache() {
         _lock_oom_dump=$(_cfg_num oom_dump_tasks 0)
         _lock_compact_unevict=$(_cfg_num compact_unevictable_allowed 1)
         _lock_panic_on_oom=$(_cfg_num panic_on_oom 0)
+        _lock_mglru=$(_cfg_str enable_mglru "true")
         _lock_mtime=$mt
 
         [ -n "$_o_zp" ] && [ "$_o_zp" != "$_lock_zram_priority" ] && \
@@ -171,11 +177,7 @@ main() {
 
     if [ -x "$MEMOPTD" ]; then
         log_info "检测到 memoptd (Rust 引擎)，直接移交 VM 锁定"
-        "$MEMOPTD" "$CONFIG" &
-        local memoptd_pid=$!
-        trap "kill $memoptd_pid 2>/dev/null; rm -f '$PIDFILE' '$PIDLOCK' '$REBUILD_LOCK'" EXIT
-        wait $memoptd_pid
-        exit $?
+        exec "$MEMOPTD" "$CONFIG"
     fi
 
     log_info "使用 shell 引擎 (回退模式)"

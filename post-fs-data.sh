@@ -4,7 +4,7 @@
 MODDIR=${0%/*}
 
 # 防止重复执行
-[ -n "_POST_FS_DATA_DONE" ] && exit 0
+[ -n "$_POST_FS_DATA_DONE" ] && exit 0
 _POST_FS_DATA_DONE=1
 
 chmod 0755 "$MODDIR"/*.sh 2>/dev/null

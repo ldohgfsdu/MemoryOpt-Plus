@@ -264,13 +264,17 @@ bind_lmkd() {
 _SWAPPINESS_MAX_CACHED=""
 swappiness_max() {
     if [ -n "$_SWAPPINESS_MAX_CACHED" ]; then echo "$_SWAPPINESS_MAX_CACHED"; return; fi
-    local cur max
-    cur=$(cat /proc/sys/vm/swappiness 2>/dev/null)
-    echo 32767 > /proc/sys/vm/swappiness 2>/dev/null
-    max=$(cat /proc/sys/vm/swappiness 2>/dev/null)
-    [ -n "$cur" ] && printf '%s' "$cur" > /proc/sys/vm/swappiness 2>/dev/null || echo 60 > /proc/sys/vm/swappiness 2>/dev/null
-    _SWAPPINESS_MAX_CACHED="${max:-200}"
-    echo "$_SWAPPINESS_MAX_CACHED"
+    local max
+    max=$(eval '
+        cur=$(cat /proc/sys/vm/swappiness 2>/dev/null)
+        echo 32767 > /proc/sys/vm/swappiness 2>/dev/null
+        max=$(cat /proc/sys/vm/swappiness 2>/dev/null)
+        [ -n "$cur" ] && printf "%s" "$cur" > /proc/sys/vm/swappiness 2>/dev/null || \
+            echo 60 > /proc/sys/vm/swappiness 2>/dev/null
+        echo "${max:-200}"
+    ')
+    _SWAPPINESS_MAX_CACHED="$max"
+    echo "$max"
 }
 
 config_vm() {
@@ -301,10 +305,15 @@ config_vm() {
     [ -f /sys/kernel/mm/transparent_hugepage/khugepaged/defrag ] && set_value 0 /sys/kernel/mm/transparent_hugepage/khugepaged/defrag quiet
     [ -f /proc/sys/kernel/sched_autogroup_enabled ] && set_value 0 /proc/sys/kernel/sched_autogroup_enabled quiet
 
-    if [ -f /sys/kernel/mm/lru_gen/enabled ]; then
-        set_value 0x0003 /sys/kernel/mm/lru_gen/enabled quiet
-        log_info "已启用 MGLRU"
-        [ -f /sys/kernel/mm/lru_gen/min_ttl_ms ] && set_value 10000 /sys/kernel/mm/lru_gen/min_ttl_ms quiet
+    if [ "$(get_config_safe enable_mglru)" = "true" ]; then
+        if [ -f /sys/kernel/mm/lru_gen/enabled ]; then
+            set_value 0x0003 /sys/kernel/mm/lru_gen/enabled quiet
+            log_info "已启用 MGLRU"
+            [ -f /sys/kernel/mm/lru_gen/min_ttl_ms ] && set_value 10000 /sys/kernel/mm/lru_gen/min_ttl_ms quiet
+        fi
+    else
+        [ -f /sys/kernel/mm/lru_gen/enabled ] && set_value 0x0000 /sys/kernel/mm/lru_gen/enabled quiet
+        log_info "MGLRU 已禁用"
     fi
 
     local pc; pc=$(get_config_safe page_cluster)

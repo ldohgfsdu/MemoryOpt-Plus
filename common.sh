@@ -18,7 +18,7 @@ get_mem_kb() {
 get_mem_mb() { local kb; kb=$(get_mem_kb); echo $(( (kb + 512) / 1024 )); }
 get_mem_gb() { local kb; kb=$(get_mem_kb); echo $(( (kb + 524288) / 1048576 )); }
 
-# ── 安全配置读取（无 eval）──────────────────
+# ── 安全配置读取（无 eval、无 IFS 污染）────
 _CONFIG_CACHE_MTIME=0
 
 get_config() {
@@ -34,26 +34,12 @@ get_config() {
     fi
     if [ "$mt" != "$_CONFIG_CACHE_MTIME" ]; then
         _CONFIG_CACHE_MTIME=$mt
-        _CFG_KEYS=""
-        _CFG_VALS=""
-        while IFS='=' read -r _k _v; do
-            case "$_k" in ''|'#'*) continue ;; esac
-            _k=$(echo "$_k" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-            [ -z "$_k" ] && continue
-            _v=$(echo "$_v" | sed 's/#.*//;s/^[[:space:]]*//;s/[[:space:]]*$//')
-            _CFG_KEYS="${_CFG_KEYS}${_k}|"
-            _CFG_VALS="${_CFG_VALS}${_v}|"
-        done < "$CONFIG"
+        _CFG_CACHE=$(sed 's/#.*//;s/^[[:space:]]*//;s/[[:space:]]*$//' "$CONFIG" | \
+            sed -n '/^[^#]*=[^=]/p')
     fi
-    local _search="${1}|"
-    local _i=0
-    local _old_ifs="$IFS"
-    IFS='|'
-    for _k in $_CFG_KEYS; do
-        _i=$((_i + 1))
-        [ "$_k" = "$1" ] && { IFS="$_old_ifs"; echo "$(echo "$_CFG_VALS" | cut -d'|' -f$_i)"; return; }
+    echo "$_CFG_CACHE" | while IFS='=' read -r _k _v; do
+        [ "$_k" = "$1" ] && { echo "$_v"; break; }
     done
-    IFS="$_old_ifs"
 }
 
 get_config_safe() {
@@ -176,7 +162,7 @@ _stop_pid() {
     kill "$pid" 2>/dev/null
     local i=0
     while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 10 ]; do
-        command -v usleep >/dev/null 2>&1 && usleep 300000 || sleep 1
+        sleep 0.3
         i=$((i + 1))
     done
     kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null

@@ -156,9 +156,17 @@ impl Daemon {
         if self.locks.dirty_expire > 0 { lock_sysctl("dirty_expire_centisecs", self.locks.dirty_expire); }
         if self.locks.dirty_writeback > 0 { lock_sysctl("dirty_writeback_centisecs", self.locks.dirty_writeback); }
 
-        if std::path::Path::new("/sys/kernel/mm/lru_gen/enabled").exists() {
-            sysfs::write_str("/sys/kernel/mm/lru_gen/enabled", "0x0003");
-            sysfs::write_str("/sys/kernel/mm/lru_gen/min_ttl_ms", "10000");
+        if self.locks.enable_mglru {
+            if std::path::Path::new("/sys/kernel/mm/lru_gen/enabled").exists() {
+                sysfs::write_str("/sys/kernel/mm/lru_gen/enabled", "0x0003");
+                info_msg("MGLRU enabled");
+                sysfs::write_str("/sys/kernel/mm/lru_gen/min_ttl_ms", "10000");
+            }
+        } else {
+            if std::path::Path::new("/sys/kernel/mm/lru_gen/enabled").exists() {
+                sysfs::write_str("/sys/kernel/mm/lru_gen/enabled", "0x0000");
+                info_msg("MGLRU disabled");
+            }
         }
         // Disable vendor-specific reclaim mechanisms (only at startup)
         let vendor_paths = [
