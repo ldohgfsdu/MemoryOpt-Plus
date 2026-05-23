@@ -175,12 +175,7 @@ main() {
     [ -f "$DISABLE" ] && { log_info "disable 文件存在，退出"; exit 0; }
     [ ! -d "$MODDIR" ] && exit 0
 
-    if [ -x "$MEMOPTD" ]; then
-        log_info "检测到 memoptd (Rust 引擎)，直接移交 VM 锁定"
-        exec "$MEMOPTD" "$CONFIG" 2>>"$LOG"
-    fi
-
-    log_info "使用 shell 引擎 (回退模式)"
+    log_info "使用 shell 引擎"
     run_optimization
     lock_params
 }
