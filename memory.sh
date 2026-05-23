@@ -140,7 +140,7 @@ _wait_zram_reset() {
     while [ "$waited" -lt 100 ]; do
         local sz; sz=$(cat "$zsys/disksize" 2>/dev/null | tr -cd '0-9')
         if [ -z "$sz" ] || [ "$sz" = "0" ]; then return 0; fi
-        command -v usleep >/dev/null 2>&1 && usleep 50000 || sleep 1
+        command -v usleep >/dev/null 2>&1 && usleep 50000 || sleep 0.1
         waited=$((waited + 1))
     done
     return 1
@@ -260,7 +260,13 @@ bind_lmkd() {
         esac
     fi
     local count=0
-    for pid in $(pgrep lmkd 2>/dev/null); do
+    local lmkd_pids=""
+    if command -v pgrep >/dev/null 2>&1; then
+        lmkd_pids=$(pgrep lmkd 2>/dev/null)
+    else
+        lmkd_pids=$(ps -ef 2>/dev/null | grep '[l]mkd' | awk '{print $2}')
+    fi
+    for pid in $lmkd_pids; do
         taskset -p "$mask" "$pid" 2>/dev/null && count=$((count + 1))
     done
     [ "$count" -gt 0 ] && log_info "lmkd 绑核完成: ${count} 个进程, mask=${mask}"
@@ -269,17 +275,14 @@ bind_lmkd() {
 _SWAPPINESS_MAX_CACHED=""
 swappiness_max() {
     if [ -n "$_SWAPPINESS_MAX_CACHED" ]; then echo "$_SWAPPINESS_MAX_CACHED"; return; fi
-    local max
-    max=$(eval '
-        cur=$(cat /proc/sys/vm/swappiness 2>/dev/null)
-        echo 32767 > /proc/sys/vm/swappiness 2>/dev/null
-        max=$(cat /proc/sys/vm/swappiness 2>/dev/null)
-        [ -n "$cur" ] && printf "%s" "$cur" > /proc/sys/vm/swappiness 2>/dev/null || \
-            echo 60 > /proc/sys/vm/swappiness 2>/dev/null
-        echo "${max:-200}"
-    ')
-    _SWAPPINESS_MAX_CACHED="$max"
-    echo "$max"
+    local cur max
+    cur=$(cat /proc/sys/vm/swappiness 2>/dev/null)
+    echo 32767 > /proc/sys/vm/swappiness 2>/dev/null
+    max=$(cat /proc/sys/vm/swappiness 2>/dev/null)
+    [ -n "$cur" ] && printf '%s' "$cur" > /proc/sys/vm/swappiness 2>/dev/null || \
+        echo 60 > /proc/sys/vm/swappiness 2>/dev/null
+    _SWAPPINESS_MAX_CACHED="${max:-200}"
+    echo "$_SWAPPINESS_MAX_CACHED"
 }
 
 config_vm() {
@@ -475,6 +478,14 @@ lock_params() {
 
 		if [ -n "$_lock_lmk_minfree" ] && [ -f /sys/module/lowmemorykiller/parameters/minfree ]; then
 			_raw_write "$_lock_lmk_minfree" /sys/module/lowmemorykiller/parameters/minfree
+		fi
+
+		if [ -f /sys/kernel/mm/lru_gen/enabled ]; then
+			if [ "$_lock_mglru" = "true" ]; then
+				_raw_write 0x0003 /sys/kernel/mm/lru_gen/enabled
+			else
+				_raw_write 0x0000 /sys/kernel/mm/lru_gen/enabled
+			fi
 		fi
 
 		if [ "$_NEED_ZRAM_REBUILD" = "1" ]; then

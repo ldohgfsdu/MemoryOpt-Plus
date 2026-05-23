@@ -124,7 +124,7 @@ reload_config_cache() {
         _lock_compaction=$(_cfg_num compaction_proactiveness 20)
         _lock_overcommit=$(_cfg_num overcommit_memory 1)
         _lock_dirty_expire=$(_cfg_num dirty_expire_centisecs 1000)
-        _lock_dirty_writeback=$(_cfg_num dirty_writeback_centisecs 500)
+        _lock_dirty_writeback=$(_cfg_num dirty_writeback_centisecs 100)
         _lock_page_cluster_mode=$(_cfg_str page_cluster "auto")
         _lock_page_cluster=$(_resolve_page_cluster "$_lock_page_cluster_mode")
         _lock_lmk_minfree=$(calc_lmk_minfree)

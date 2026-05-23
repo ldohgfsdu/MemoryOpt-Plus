@@ -30,7 +30,7 @@ get_config() {
         mt=$(date -r "$CONFIG" +%s 2>/dev/null)
     fi
     if [ -z "$mt" ] || [ "$mt" = "0" ]; then
-        mt=$(ls -l "$CONFIG" 2>/dev/null | awk '{print $6$7$8$5}')
+        mt=$(ls -l --time-style=+%s "$CONFIG" 2>/dev/null | awk '{print $6}')
     fi
     if [ "$mt" != "$_CONFIG_CACHE_MTIME" ]; then
         _CONFIG_CACHE_MTIME=$mt
@@ -74,6 +74,10 @@ get_config_num() {
     local val=$(get_config "$1")
     case "$val" in ''|*[!0-9]*) echo "$2" ;; *) echo "$val" ;; esac
 }
+
+_cfg_num()  { get_config_num "$1" "$2"; }
+_cfg_str()  { local v; v=$(get_config "$1"); echo "${v:-$2}"; }
+_cfg_bool() { local v; v=$(get_config_safe "$1"); echo "${v:-false}"; }
 
 detect_oem() {
     if [ -f "$MODDIR/.oem_type" ]; then cat "$MODDIR/.oem_type" 2>/dev/null; return; fi
