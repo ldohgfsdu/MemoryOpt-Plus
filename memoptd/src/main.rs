@@ -18,24 +18,6 @@ use nix::sys::signalfd::SignalFd;
 use nix::sys::timerfd::{ClockId, TimerFd, TimerFlags, TimerSetTimeFlags, Expiration};
 use nix::poll::{poll, PollFd, PollFlags, PollTimeout};
 
-static mut LOG_FILE: Option<std::fs::File> = None;
-
-fn log_to_file(level: &str, msg: &str) {
-    if let Some(ref mut f) = unsafe { LOG_FILE.as_mut() } {
-        let ts = chrono_timestamp();
-        let _ = writeln!(f, "[{}] - [{}]: {}", ts, level, msg);
-        let _ = f.flush();
-    }
-}
-
-fn chrono_timestamp() -> String {
-    let secs = unsafe { libc::time(std::ptr::null_mut()) };
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    unsafe { libc::localtime_r(&secs, &mut tm); }
-    format!("{:02}-{:02} {:02}:{:02}:{:02}",
-        tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec)
-}
-
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let config_path = args.get(1)
@@ -45,16 +27,14 @@ fn main() {
     // Derive log path from config directory
     if let Some(parent) = config_path.parent() {
         let log_path = parent.join("log.txt");
-        if let Ok(f) = std::fs::OpenOptions::new().create(true).append(true).open(&log_path) {
-            unsafe { LOG_FILE = Some(f); }
-        }
+        sysfs::init_log(&log_path);
     }
 
     match Daemon::new(&config_path) {
         Ok(mut d) => d.run(),
         Err(e) => {
             let msg = format!("Failed to init memoptd: {}", e);
-            log_to_file("!", &msg);
+            sysfs::log_to_file("!", &msg);
             let _ = std::io::stderr().write_all(format!("[!] memoptd: {}\n", msg).as_bytes());
             process::exit(1);
         }
@@ -122,7 +102,7 @@ impl Daemon {
         let tfd_fd = tfd.as_fd().as_raw_fd();
 
         self.apply_all();
-        log_to_file("i", "memoptd started");
+        sysfs::log_to_file("i", "memoptd started");
 
         loop {
             let mut pfds = [
@@ -136,7 +116,7 @@ impl Daemon {
                 Err(nix::errno::Errno::EINTR) => continue,
                 Err(e) => {
                     warn_msg(&format!("poll error: {}", e));
-                    log_to_file("!", &format!("poll error: {}", e));
+                    sysfs::log_to_file("!", &format!("poll error: {}", e));
                     continue;
                 }
             }
@@ -188,14 +168,14 @@ impl Daemon {
             if std::path::Path::new("/sys/kernel/mm/lru_gen/enabled").exists() {
                 sysfs::write_str("/sys/kernel/mm/lru_gen/enabled", "0x0003");
                 info_msg("MGLRU enabled");
-                log_to_file("i", "MGLRU enabled");
+                sysfs::log_to_file("i", "MGLRU enabled");
                 sysfs::write_str("/sys/kernel/mm/lru_gen/min_ttl_ms", "10000");
             }
         } else {
             if std::path::Path::new("/sys/kernel/mm/lru_gen/enabled").exists() {
                 sysfs::write_str("/sys/kernel/mm/lru_gen/enabled", "0x0000");
                 info_msg("MGLRU disabled");
-                log_to_file("i", "MGLRU disabled");
+                sysfs::log_to_file("i", "MGLRU disabled");
             }
         }
         // Disable vendor-specific reclaim mechanisms (only at startup)
@@ -217,7 +197,7 @@ impl Daemon {
         sysfs::write_str("/sys/kernel/mm/transparent_hugepage/khugepaged/defrag", "0");
         sysfs::write_str("/proc/sys/kernel/sched_autogroup_enabled", "0");
         self.last_zram_ok = zram::check_online();
-        log_to_file("i", &format!("apply_all: sw={} wm={} dbr={} dr={} MGLRU={}",
+        sysfs::log_to_file("i", &format!("apply_all: sw={} wm={} dbr={} dr={} MGLRU={}",
             self.locks.swappiness, self.locks.watermark,
             self.locks.dirty_bg, self.locks.dirty, self.locks.enable_mglru));
     }
@@ -241,7 +221,7 @@ impl Daemon {
 
         if !zram::check_online() && self.last_zram_ok {
             warn_msg("ZRAM device lost, triggering rebuild");
-            log_to_file("!", "ZRAM device lost, triggering rebuild");
+            sysfs::log_to_file("!", "ZRAM device lost, triggering rebuild");
             self.trigger_zram_rebuild();
         }
         self.last_zram_ok = zram::check_online();
@@ -271,16 +251,16 @@ impl Daemon {
                 self.boot_cycles = 0;
                 self.apply_all();
                 info_msg("config reloaded (boot_cycles reset)");
-                log_to_file("i", "config reloaded");
+                sysfs::log_to_file("i", "config reloaded");
             }
-            Err(e) => { warn_msg(&format!("config reload failed: {}", e)); log_to_file("!", &format!("config reload failed: {}", e)); }
+            Err(e) => { warn_msg(&format!("config reload failed: {}", e)); sysfs::log_to_file("!", &format!("config reload failed: {}", e)); }
         }
     }
 
     fn trigger_zram_rebuild(&mut self) {
         let _ = std::fs::write("/data/local/tmp/memoryopt_trigger_rebuild", "1");
         warn_msg("ZRAM rebuild trigger written");
-        log_to_file("i", "ZRAM rebuild trigger written");
+        sysfs::log_to_file("i", "ZRAM rebuild trigger written");
     }
 }
 
