@@ -184,10 +184,14 @@ config_zram() {
 
     log_info "设置压缩算法: $algo"
     [ -f "$zsys/comp_algorithm" ] && set_value "$algo" "$zsys/comp_algorithm" quiet
+    # Verify algorithm was set
+    local actual_alg
+    actual_alg=$(cat "$zsys/comp_algorithm" 2>/dev/null | grep -o '\[.*\]' | tr -d '[]')
+    [ -n "$actual_alg" ] && log_info "实际算法: $actual_alg"
 
     local mem_mb; mem_mb=$(get_mem_mb)
     local disk; disk=$(parse_zram_size "$size_raw" "$mem_mb")
-    log_info "设置 ZRAM 大小"
+    log_info "设置 ZRAM 大小: $disk"
     set_value "$disk" "$zsys/disksize" quiet || { echo 1 > "$zsys/reset" 2>/dev/null; return 1; }
 
     if [ -z "$SWAPON_HAS_P" ]; then
@@ -220,6 +224,7 @@ config_zram() {
         local pri=""
         [ "$SWAPON_HAS_P" = true ] && pri="优先级 ${priority}" || pri="无优先级"
         log_info "ZRAM 已启用: ${algo} · ${disk} · ${dev} · ${pri}"
+        log_info "压缩算法验证: $(cat "$zsys/comp_algorithm" 2>/dev/null)"
         return 0
     else
         log_warn "swapon 失败"
