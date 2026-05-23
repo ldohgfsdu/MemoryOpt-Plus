@@ -117,7 +117,6 @@ impl Daemon {
                 Err(nix::errno::Errno::EINTR) => continue,
                 Err(e) => {
                     warn_msg(&format!("poll error: {}", e));
-                    sysfs::log_to_file("!", &format!("poll error: {}", e));
                     continue;
                 }
             }
@@ -168,15 +167,11 @@ impl Daemon {
         if self.locks.enable_mglru {
             if std::path::Path::new("/sys/kernel/mm/lru_gen/enabled").exists() {
                 sysfs::write_str("/sys/kernel/mm/lru_gen/enabled", "0x0003");
-                info_msg("MGLRU enabled");
-                sysfs::log_to_file("i", "MGLRU enabled");
                 sysfs::write_str("/sys/kernel/mm/lru_gen/min_ttl_ms", "10000");
             }
         } else {
             if std::path::Path::new("/sys/kernel/mm/lru_gen/enabled").exists() {
                 sysfs::write_str("/sys/kernel/mm/lru_gen/enabled", "0x0000");
-                info_msg("MGLRU disabled");
-                sysfs::log_to_file("i", "MGLRU disabled");
             }
         }
         // Disable vendor-specific reclaim mechanisms (only at startup)
@@ -198,9 +193,6 @@ impl Daemon {
         sysfs::write_str("/sys/kernel/mm/transparent_hugepage/khugepaged/defrag", "0");
         sysfs::write_str("/proc/sys/kernel/sched_autogroup_enabled", "0");
         self.last_zram_ok = zram::check_online();
-        sysfs::log_to_file("i", &format!("apply_all: sw={} wm={} dbr={} dr={} MGLRU={}",
-            self.locks.swappiness, self.locks.watermark,
-            self.locks.dirty_bg, self.locks.dirty, self.locks.enable_mglru));
     }
 
     fn lock_cycle(&mut self) {
@@ -222,7 +214,6 @@ impl Daemon {
 
         if !zram::check_online() && self.last_zram_ok {
             warn_msg("ZRAM device lost, triggering rebuild");
-            sysfs::log_to_file("!", "ZRAM device lost, triggering rebuild");
             self.trigger_zram_rebuild();
         }
         self.last_zram_ok = zram::check_online();
@@ -251,10 +242,9 @@ impl Daemon {
                 self.locks = config::Locks::from_config(&cfg);
                 self.boot_cycles = 0;
                 self.apply_all();
-                info_msg("config reloaded (boot_cycles reset)");
-                sysfs::log_to_file("i", "config reloaded");
+                self.configure_zram();
             }
-            Err(e) => { warn_msg(&format!("config reload failed: {}", e)); sysfs::log_to_file("!", &format!("config reload failed: {}", e)); }
+            Err(e) => { warn_msg(&format!("config reload failed: {}", e)); }
         }
     }
 
@@ -273,7 +263,7 @@ impl Daemon {
         ) {
             let mem_bytes = sysfs::read_mem_total_bytes();
             let fallback_size = if mem_bytes > 4u64 * 1024 * 1024 * 1024 { "2.0" } else { "1.0" };
-            sysfs::log_to_file("!", "zram config failed, trying lz4 fallback");
+            warn_msg("zram config failed, trying lz4 fallback");
             zram::configure("lz4", fallback_size, &dev, "auto", self.locks.zram_priority);
         }
     }
