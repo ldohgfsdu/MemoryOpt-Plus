@@ -94,7 +94,7 @@ preserve_config() {
     return 1
 }
 
-get_mem_mb()      { local mk; mk=$(grep MemTotal /proc/meminfo | tr -cd '0-9'); echo $((mk / 1024)); }
+get_mem_mb()      { local mk; mk=$(grep MemTotal /proc/meminfo | tr -cd '0-9'); echo $(((mk + 512) / 1024)); }
 get_kernel_major(){ uname -r | cut -d. -f1; }
 supports_zstd()   {
     [ -f /sys/block/zram0/comp_algorithm ] && grep -qw zstd /sys/block/zram0/comp_algorithm 2>/dev/null && return 0

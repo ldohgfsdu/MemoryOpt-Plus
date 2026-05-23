@@ -87,14 +87,10 @@ command -v resetprop >/dev/null 2>&1 && _HAS_RESETPROP=true
 
 _prop_set() {
     if [ "$_HAS_RESETPROP" = "true" ]; then
-        resetprop "$1" "$2" 2>/dev/null && return 0
-        # resetprop failed, try setprop as fallback
-        setprop "$1" "$2" 2>/dev/null && return 0
+        resetprop "$1" "$2" 2>/dev/null
     else
-        setprop "$1" "$2" 2>/dev/null && return 0
+        setprop "$1" "$2" 2>/dev/null
     fi
-    echo "[!] MemoryOpt: failed to set property $1=$2" >&2
-    return 1
 }
 
 _prop_del() {

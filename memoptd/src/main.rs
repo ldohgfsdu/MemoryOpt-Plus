@@ -18,18 +18,6 @@ use nix::sys::signalfd::SignalFd;
 use nix::sys::timerfd::{ClockId, TimerFd, TimerFlags, TimerSetTimeFlags, Expiration};
 use nix::poll::{poll, PollFd, PollFlags, PollTimeout};
 
-/// Helper to extract raw fd and keep the owner alive.
-/// Prevents use-after-free by ensuring the owner outlives the BorrowedFd.
-struct OwnedFd {
-    _owner: SignalFd,
-    raw: i32,
-}
-
-struct OwnedTimerFd {
-    _owner: TimerFd,
-    raw: i32,
-}
-
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let config_path = args.get(1)
@@ -49,7 +37,6 @@ fn main() {
 struct Daemon {
     config_path: PathBuf,
     inotify: inotify::Watcher,
-    config: config::Config,
     locks: config::Locks,
     heartbeat: heartbeat::Emitter,
     last_zram_ok: bool,
@@ -65,7 +52,6 @@ impl Daemon {
         Ok(Self {
             config_path: config_path.to_owned(),
             inotify,
-            config,
             locks,
             heartbeat,
             last_zram_ok: false,
@@ -97,21 +83,19 @@ impl Daemon {
             TimerSetTimeFlags::empty(),
         ).ok();
 
-        // Wrap fds with their owners to guarantee safe lifetimes
-        let mut sfd = OwnedFd { raw: sfd.as_raw_fd(), _owner: sfd };
-        let mut tfd = OwnedTimerFd { raw: tfd.as_fd().as_raw_fd(), _owner: tfd };
+        // Extract raw fds to avoid borrow conflicts with &mut self
         let ino_fd = self.inotify.as_raw_fd();
+        let sfd_fd = sfd.as_raw_fd();
+        let tfd_fd = tfd.as_fd().as_raw_fd();
 
         self.apply_all();
         info_msg("memoptd started");
 
         loop {
             let mut pfds = [
-                // SAFETY: ino_fd is backed by self.inotify which outlives the loop.
-                // sfd.raw and tfd.raw are backed by sfd._owner / tfd._owner on the stack above.
                 PollFd::new(unsafe { BorrowedFd::borrow_raw(ino_fd) }, PollFlags::POLLIN),
-                PollFd::new(unsafe { BorrowedFd::borrow_raw(sfd.raw) }, PollFlags::POLLIN),
-                PollFd::new(unsafe { BorrowedFd::borrow_raw(tfd.raw) }, PollFlags::POLLIN),
+                PollFd::new(unsafe { BorrowedFd::borrow_raw(sfd_fd) }, PollFlags::POLLIN),
+                PollFd::new(unsafe { BorrowedFd::borrow_raw(tfd_fd) }, PollFlags::POLLIN),
             ];
 
             let _ = poll(&mut pfds, PollTimeout::from(60000u16));
@@ -122,7 +106,7 @@ impl Daemon {
             }
 
             if pfds[1].revents().map_or(false, |r| r.contains(PollFlags::POLLIN)) {
-                while let Ok(Some(event)) = sfd._owner.read_signal() {
+                while let Ok(Some(event)) = sfd.read_signal() {
                     match event.ssi_signo as i32 {
                         libc::SIGHUP => self.reload(),
                         libc::SIGUSR1 => self.trigger_zram_rebuild(),
@@ -132,17 +116,14 @@ impl Daemon {
             }
 
             if pfds[2].revents().map_or(false, |r| r.contains(PollFlags::POLLIN)) {
-                tfd._owner.wait().ok();
+                tfd.wait().ok();
                 self.lock_cycle();
             }
         }
     }
 
     fn apply_all(&mut self) {
-        // Use a boot-safe swappiness (80). The lock_cycle boot ramp
-        // will progressively increase it to the configured value over
-        // the first 24 cycles (2 minutes at watch_interval=5).
-        lock_sysctl("swappiness", self.locks.swappiness.min(80));
+        lock_sysctl("swappiness", self.locks.swappiness);
         lock_sysctl("dirty_background_ratio", self.locks.dirty_bg);
         lock_sysctl("dirty_ratio", self.locks.dirty);
         lock_sysctl("vfs_cache_pressure", self.locks.vfs_cache);
@@ -166,6 +147,19 @@ impl Daemon {
             sysfs::write_str("/sys/kernel/mm/lru_gen/enabled", "0x0003");
             sysfs::write_str("/sys/kernel/mm/lru_gen/min_ttl_ms", "10000");
         }
+        // Disable vendor-specific reclaim mechanisms
+        sysfs::write_str("/sys/module/process_reclaim/parameters/enable_process_reclaim", "0");
+        sysfs::write_str("/sys/kernel/mi_reclaim/enable", "0");
+        sysfs::write_str("/sys/kernel/mi_reclaim/greclaim_enable", "0");
+        sysfs::write_str("/sys/kernel/low_free/low_free_enable", "0");
+        sysfs::write_str("/sys/module/memplus_core/parameters/memory_plus_enabled", "0");
+        sysfs::write_str("/proc/sys/vm/memory_plus", "0");
+        sysfs::write_str("/sys/kernel/mi_thermald/mi_thermald_enable", "0");
+        sysfs::write_str("/sys/module/perfmgr/parameters/perfmgr_enable", "0");
+        sysfs::write_str("/sys/module/opchain/parameters/opchain_enable", "0");
+        // Disable transparent hugepage compaction and scheduler autogroup
+        sysfs::write_str("/sys/kernel/mm/transparent_hugepage/khugepaged/defrag", "0");
+        sysfs::write_str("/proc/sys/kernel/sched_autogroup_enabled", "0");
         self.last_zram_ok = zram::check_online();
     }
 
@@ -185,11 +179,6 @@ impl Daemon {
         delta_lock("block_dump", 0);
         if self.locks.dirty_expire > 0 { delta_lock("dirty_expire_centisecs", self.locks.dirty_expire); }
         if self.locks.dirty_writeback > 0 { delta_lock("dirty_writeback_centisecs", self.locks.dirty_writeback); }
-
-        if std::path::Path::new("/sys/kernel/mm/lru_gen/enabled").exists() {
-            sysfs::write_str("/sys/kernel/mm/lru_gen/enabled", "0x0003");
-            sysfs::write_str("/sys/kernel/mm/lru_gen/min_ttl_ms", "10000");
-        }
 
         if !zram::check_online() && self.last_zram_ok {
             warn_msg("ZRAM device lost, triggering rebuild");
@@ -215,8 +204,7 @@ impl Daemon {
     fn reload(&mut self) {
         match config::Config::from_file(&self.config_path) {
             Ok(cfg) => {
-                self.config = cfg;
-                self.locks = config::Locks::from_config(&self.config);
+                self.locks = config::Locks::from_config(&cfg);
                 self.apply_all();
                 info_msg("config reloaded");
             }
