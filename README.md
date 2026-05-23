@@ -3,7 +3,7 @@
 > Android 高性能内存优化 Magisk 模块
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-V26.05.20-blue" alt="version">
+  <img src="https://img.shields.io/badge/version-V26.05.23-blue" alt="version">
   <img src="https://img.shields.io/badge/platform-Android-green" alt="Android">
   <img src="https://img.shields.io/badge/min%20kernel-4.x-blue" alt="Kernel 4.x+">
   <img src="https://img.shields.io/badge/license-MIT-orange" alt="MIT">
@@ -23,11 +23,11 @@ MemoryOpt Plus 是一款面向 Android 设备的 Magisk 内存优化模块，支
 
 | 类别 | 说明 |
 |------|------|
-| **双引擎** | Rust (`memoptd`) 零 fork 高性能 + Shell 零依赖回退 |
 | **ZRAM 管理** | 自动备份/恢复原生配置，支持热插拔创建新设备 |
 | **多算法** | lz4 / zstd / lz4hc / lzo / lzo-rle / deflate，不支持自动降级 |
 | **VM 锁定** | swappiness / vfs_cache_pressure / dirty_ratio 等 20+ 参数持续守护 |
-| **热重载** | 编辑 `swap.ini` 保存即生效（Rust 引擎 inotify < 100ms）|
+| **热重载** | 编辑 `swap.ini` 保存即生效 |
+| **MGLRU 支持** | Multi-Gen LRU 可配置开关 |
 | **PSI 自适应** | 内存紧张时自动降低 swappiness，避免 OOM |
 | **厂商回收禁用** | 支持 Xiaomi / OPPO / OnePlus / VIVO |
 | **LMK 调优** | 根据内存大小动态计算 minfree 阈值 |
@@ -60,14 +60,22 @@ MemoryOpt Plus 是一款面向 Android 设备的 Magisk 内存优化模块，支
 |------|--------|----------|------|
 | `algorithm` | `lz4` | lz4 / zstd / lz4hc / lzo / lzo-rle / deflate | ZRAM 压缩算法 |
 | `zram_size` | `2.0` | 因子或 `4G` / `2048M` | ZRAM 大小（内存倍数或绝对值） |
-| `swappiness` | `130` | 0 ~ 32767 | 交换倾向，越高越积极使用 ZRAM |
-| `dirty_background_ratio` | `2` | 0 ~ 100 | 后台脏页刷新阈值 (% 总内存) |
-| `dirty_ratio` | `5` | 0 ~ 100 | 强制脏页刷新阈值 (% 总内存) |
+| `swappiness` | `100` | 0 ~ 32767 | 交换倾向，越高越积极使用 ZRAM |
+| `dirty_background_ratio` | `5` | 0 ~ 100 | 后台脏页刷新阈值 (% 总内存) |
+| `dirty_ratio` | `10` | 0 ~ 100 | 强制脏页刷新阈值 (% 总内存) |
 | `vfs_cache_pressure` | `125` | 0 ~ 200 | >100 优先回收 page cache |
-| `watermark_scale_factor` | `100` | 1 ~ 1000 | 水位线缩放因子 |
+| `watermark_scale_factor` | `50` | 1 ~ 1000 | 水位线缩放因子 |
 | `compaction_proactiveness` | `20` | 0 ~ 100 | 主动内存规整，0 = 关闭 |
 | `overcommit_memory` | `1` | 0 / 1 / 2 | 内存过量分配策略 |
 | `watch_interval` | `5` | 1 ~ 3600 | VM 参数锁定检查间隔（秒） |
+
+### 高级参数
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `enable_mglru` | `true` | 启用 Multi-Gen LRU |
+| `extra_free_kbytes` | `auto` | 额外保留空闲内存 |
+| `page_cluster` | `auto` | 页面簇大小（根据算法自适应） |
 
 ### 行为控制
 
@@ -87,18 +95,6 @@ MemoryOpt Plus 是一款面向 Android 设备的 Magisk 内存优化模块，支
 | `lmk_low_percent` | `6` | 低压力时的内存阈值 (% 总内存) |
 | `lmk_medium_percent` | `4` | 中等压力阈值 |
 | `lmk_critical_percent` | `2` | 临界阈值 |
-
----
-
-## 编译 (memoptd)
-
-```bash
-cd memoptd/
-./build.sh
-cp out/memoptd ../bin/
-```
-
-> 不编译也可正常使用，模块会自动回退到 Shell 引擎。
 
 ---
 
