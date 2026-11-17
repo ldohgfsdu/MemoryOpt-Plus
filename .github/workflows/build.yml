@@ -1,8 +1,5 @@
 name: Build & Package
 on:
-  push:
-    branches: [master]
-    tags: ['*']
   workflow_dispatch:
 
 permissions:
